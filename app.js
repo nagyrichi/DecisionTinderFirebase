@@ -234,25 +234,60 @@ function setupSwipeGesture(card) {
 
 // --- Oldal betöltés ---
 window.onload = () => {
-  userId = localStorage.getItem("swipy_user_id") || generateUserId();
-  localStorage.setItem("swipy_user_id", userId);
-  
+  // Felhasználói azonosító betöltése vagy létrehozása
+  userId = localStorage.getItem("swipy_user_id");
+  if (!userId) {
+    userId = generateUserId();
+    localStorage.setItem("swipy_user_id", userId);
+  }
+
+  // Session ID fixen global
+  sessionId = "global";
+
+  // Témák betöltése és munkamenet ellenőrzése
   loadTopics();
   checkSessionStatus();
-  
+
+  // Modális ablak példány
   pendingVoteModal = new bootstrap.Modal(document.getElementById('pendingVoteModal'));
-  
+
+  // AddItem gomb + input kezelés
+  const addItemBtn = document.getElementById('addItemBtn');
+  const newItemInput = document.getElementById('newItemInput');
+  if (newItemInput && addItemBtn) {
+    const updateButtonState = () => {
+      const hasText = newItemInput.value.trim().length > 0;
+      addItemBtn.disabled = !hasText;
+      addItemBtn.classList.toggle('btn-primary', hasText);
+      addItemBtn.classList.toggle('btn-outline-secondary', !hasText);
+    };
+
+    // Első állapot beállítása
+    updateButtonState();
+
+    // Input változás követése
+    newItemInput.addEventListener('input', updateButtonState);
+
+    // Gomb eseménykezelő hozzáadása
+    addInstantClick(addItemBtn, handleAddItem);
+  }
+
+  // Egyéb gombok eseménykezelői
   addInstantClick(document.getElementById("topicNextBtn"), onTopicNext);
   addInstantClick(document.getElementById("yesBtn"), () => handleSwipe(true));
   addInstantClick(document.getElementById("noBtn"), () => handleSwipe(false));
+  
+  // Ha modális gombok vannak
+  addInstantClick(document.getElementById('pendingVoteYes'), () => handleVoteOnPending('yes'));
+  addInstantClick(document.getElementById('pendingVoteNo'), () => handleVoteOnPending('no'));
 
-  // QR-kód megjelenítése a megosztás gombbal
+  // QR-kód megosztás gomb
   addInstantClick(document.getElementById("shareQrBtn"), () => {
     const link = window.location.href;
     document.getElementById("qrLinkText").textContent = link;
 
     const qrContainer = document.getElementById("qrCodeContainer");
-    qrContainer.innerHTML = ""; // töröljük az előző QR-kódot, ha van
+    qrContainer.innerHTML = "";
 
     new QRCode(qrContainer, {
       text: link,
@@ -263,4 +298,7 @@ window.onload = () => {
     const qrModal = new bootstrap.Modal(document.getElementById("qrModal"));
     qrModal.show();
   });
+
+  // Kezdőképernyő beállítása, ha szükséges
+  showScreen("screen-topic");
 };
