@@ -23,6 +23,15 @@ function updateActivity() {
   lastActivityTimestamp = Date.now();
 }
 
+function addInstantClick(element, callback) {
+  if (!element) return;
+  let touchMoved = false;
+  element.addEventListener('touchstart', () => { touchMoved = false; }, { passive: true });
+  element.addEventListener('touchmove', () => { touchMoved = true; }, { passive: true });
+  element.addEventListener('touchend', (e) => { if (!touchMoved) { e.preventDefault(); callback(e); } });
+  element.addEventListener('click', (e) => { if ('ontouchend' in document.documentElement) return; callback(e); });
+}
+
 // --- Képernyő ---
 function showScreen(screenId) {
   ["screen-topic", "screen-swipe", "screen-match"].forEach(id => {
