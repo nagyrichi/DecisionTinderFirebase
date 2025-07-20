@@ -89,7 +89,7 @@ function showNextItem() {
   if (currentIndex >= currentItems.length) {
     sendSwipes().then(() => {
       showScreen("screen-match");
-      startMatchPolling();
+      startMatchListener();
     });
     return;
   }
@@ -255,14 +255,91 @@ async function handleDeleteItem(itemToDelete) {
 
 
 
-function startMatchPolling() {
-  stopMatchPolling();
-  matchInterval = setInterval(checkMatch, 1000);
-  checkMatch();
+let unsubscribeMatchListener = null;
+
+function startMatchListener() {
+  // Ha már van aktív listener, előbb leiratkozunk róla
+  if (unsubscribeMatchListener) unsubscribeMatchListener();
+
+  unsubscribeMatchListener = db.collection("swipes")
+    .where("session", "==", sessionId)
+    .where("topic", "==", currentTopic)
+    .onSnapshot(snapshot => {
+      // Csak akkor frissítünk, ha a match képernyő aktív
+      if (!document.getElementById('screen-match').classList.contains('active-screen')) return;
+
+      const allVotes = [];
+      snapshot.forEach(doc => allVotes.push(doc.data().swipes));
+
+      const voteCounts = {};
+      let matchSet = null;
+
+      allVotes.forEach(votes => {
+        votes.forEach(item => {
+          voteCounts[item] = (voteCounts[item] || 0) + 1;
+        });
+        if (!matchSet) matchSet = new Set(votes);
+        else matchSet = new Set(votes.filter(x => matchSet.has(x)));
+      });
+
+      const ownVotesList = document.getElementById("ownVotes");
+      ownVotesList.innerHTML = "";
+      const ownYesVotes = new Set(accepted);
+
+      // Minden elem egyszer jelenjen meg (összes item, amire valaki szavazott)
+      const allItems = [...new Set(allVotes.flat())];
+
+      allItems.forEach(item => {
+        const li = document.createElement("li");
+        li.className = "list-group-item p-0";
+        li.style.position = 'relative';
+
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = "list-item-content d-flex justify-content-between align-items-center p-3";
+
+        const itemTextSpan = document.createElement('span');
+        itemTextSpan.textContent = item;
+
+        const badgesWrapper = document.createElement('div');
+        badgesWrapper.className = 'd-flex align-items-center';
+
+        const countBadge = document.createElement('span');
+        countBadge.className = 'badge text-bg-secondary me-2';
+        countBadge.innerHTML = `<i class="fas fa-users me-1"></i>${voteCounts[item] || 0}`;
+        badgesWrapper.appendChild(countBadge);
+
+        const hasVotedYes = ownYesVotes.has(item);
+        const hasDecided = decidedItems.has(item);
+        const voteBadge = document.createElement("span");
+        voteBadge.className = `badge rounded-pill ${hasVotedYes ? 'bg-success' : (hasDecided ? 'bg-danger' : 'bg-secondary')}`;
+        voteBadge.innerHTML = hasVotedYes ? 'Igen' : (hasDecided ? 'Nem' : '?');
+        badgesWrapper.appendChild(voteBadge);
+
+        contentWrapper.appendChild(itemTextSpan);
+        contentWrapper.appendChild(badgesWrapper);
+        li.appendChild(contentWrapper);
+
+        ownVotesList.appendChild(li);
+        addVoteToggleListener(contentWrapper, item, hasVotedYes, hasDecided);
+        makeItemDeletable(li, contentWrapper, item);
+      });
+
+      const matchResultEl = document.getElementById("matchResult");
+      if (matchSet && matchSet.size) {
+        matchResultEl.className = 'alert alert-success text-center flex-shrink-0';
+        matchResultEl.innerHTML = `<i class="fas fa-check-circle"></i> Közös választás: <strong>${[...matchSet].join(", ")}</strong>`;
+      } else {
+        matchResultEl.className = 'alert alert-warning text-center flex-shrink-0';
+        matchResultEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Várakozás...`;
+      }
+    });
 }
 
-function stopMatchPolling() {
-  if (matchInterval) clearInterval(matchInterval);
+function stopMatchListener() {
+  if (unsubscribeMatchListener) {
+    unsubscribeMatchListener();
+    unsubscribeMatchListener = null;
+  }
 }
 
 async function checkMatch() {
