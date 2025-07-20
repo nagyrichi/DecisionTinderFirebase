@@ -42,19 +42,25 @@ function addInstantClick(element, callback) {
 
 // --- Firebase logika ---
 async function loadTopics() {
-  const doc = await db.collection("topics").doc("global").get();
-  if (doc.exists) {
-    topics = doc.data();
-    const topicSelect = document.getElementById("topic");
-    topicSelect.innerHTML = "";
-    Object.keys(topics).forEach(topic => {
-      const opt = document.createElement("option");
-      opt.value = topic;
-      opt.innerText = topic;
-      topicSelect.appendChild(opt);
-    });
-  }
+  const snapshot = await db.collection("topics").get();
+  console.log("Topics snapshot:", snapshot);
+  topics = {};
+  snapshot.forEach(doc => {
+    topics[doc.id] = doc.data().items || [];
+  });
+  console.log("Topics objektum:", topics);
+
+  const topicSelect = document.getElementById("topic");
+  topicSelect.innerHTML = "";
+  Object.keys(topics).forEach(topic => {
+    const opt = document.createElement("option");
+    opt.value = topic;
+    opt.innerText = topic;
+    topicSelect.appendChild(opt);
+  });
+  console.log("Beállított select:", topicSelect);
 }
+
 
 async function onTopicNext() {
   const topicSelect = document.getElementById("topic");
