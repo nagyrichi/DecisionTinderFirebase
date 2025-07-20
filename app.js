@@ -123,6 +123,30 @@ async function sendSwipes() {
   });
 }
 
+async function handleAddItem() {
+  const input = document.getElementById('newItemInput');
+  const item = input.value.trim();
+  if (!item) return;
+
+  // Locális topics frissítése
+  if (!topics[currentTopic]) topics[currentTopic] = [];
+  topics[currentTopic].push(item);
+
+  // Firestore frissítése
+  await db.collection("topics").doc(currentTopic).update({
+    items: topics[currentTopic]
+  });
+
+  // Opcionális: saját szavazat automatikusan igen
+  if (!accepted.includes(item)) accepted.push(item);
+  await sendSwipes();
+
+  // Input ürítés és gomb frissítése
+  input.value = '';
+  input.dispatchEvent(new Event('input'));
+}
+
+
 function startMatchPolling() {
   stopMatchPolling();
   matchInterval = setInterval(checkMatch, 1000);
