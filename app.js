@@ -236,10 +236,31 @@ function setupSwipeGesture(card) {
 window.onload = () => {
   userId = localStorage.getItem("swipy_user_id") || generateUserId();
   localStorage.setItem("swipy_user_id", userId);
+  
   loadTopics();
   checkSessionStatus();
+  
   pendingVoteModal = new bootstrap.Modal(document.getElementById('pendingVoteModal'));
+  
   addInstantClick(document.getElementById("topicNextBtn"), onTopicNext);
   addInstantClick(document.getElementById("yesBtn"), () => handleSwipe(true));
   addInstantClick(document.getElementById("noBtn"), () => handleSwipe(false));
+
+  // QR-kód megjelenítése a megosztás gombbal
+  addInstantClick(document.getElementById("shareQrBtn"), () => {
+    const link = window.location.href;
+    document.getElementById("qrLinkText").textContent = link;
+
+    const qrContainer = document.getElementById("qrCodeContainer");
+    qrContainer.innerHTML = ""; // töröljük az előző QR-kódot, ha van
+
+    new QRCode(qrContainer, {
+      text: link,
+      width: 180,
+      height: 180
+    });
+
+    const qrModal = new bootstrap.Modal(document.getElementById("qrModal"));
+    qrModal.show();
+  });
 };
