@@ -123,6 +123,103 @@ async function sendSwipes() {
   });
 }
 
+function makeItemDeletable(listItem, contentWrapper, itemName) {
+  let startX = 0, currentX = 0, isDragging = false, crossedThreshold = false;
+
+  const closeAnyOpen = () => {
+    if (currentlyOpenListItem && currentlyOpenListItem !== listItem) {
+      currentlyOpenListItem.classList.remove('open');
+      currentlyOpenListItem.querySelector('.list-item-content').style.transform = 'translateX(0)';
+      currentlyOpenListItem = null;
+    }
+  };
+
+  const onDragStart = (e) => {
+    if (e.type === 'mousedown' && e.button !== 0) return;
+    isDragging = true;
+    crossedThreshold = false;
+    startX = e.touches ? e.touches[0].clientX : e.clientX;
+    contentWrapper.style.transition = 'none';
+
+    closeAnyOpen();
+
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragEnd);
+    document.addEventListener('touchmove', onDragMove, { passive: true });
+    document.addEventListener('touchend', onDragEnd);
+  };
+
+  const onDragMove = (e) => {
+    if (!isDragging) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    currentX = clientX - startX;
+
+    if (currentX < -40) crossedThreshold = true;
+
+    if (currentX < 0) {
+      contentWrapper.style.transform = `translateX(${currentX}px)`;
+    } else if (currentX > 0 && listItem.classList.contains('open')) {
+      // Swipe back -> engedjük visszacsúszni
+      contentWrapper.style.transform = `translateX(${Math.min(currentX - 80, 0)}px)`;
+    } else {
+      contentWrapper.style.transform = 'translateX(0)';
+    }
+  };
+
+  const onDragEnd = () => {
+    if (!isDragging) return;
+    isDragging = false;
+
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup', onDragEnd);
+    document.removeEventListener('touchmove', onDragMove);
+    document.removeEventListener('touchend', onDragEnd);
+
+    contentWrapper.style.transition = 'transform 0.3s ease';
+
+    if (crossedThreshold) {
+      contentWrapper.style.transform = 'translateX(-80px)';
+      listItem.classList.add('open');
+      currentlyOpenListItem = listItem;
+    } else if (listItem.classList.contains('open') && currentX > 40) {
+      // Swipe back bezárás
+      contentWrapper.style.transform = 'translateX(0)';
+      listItem.classList.remove('open');
+      currentlyOpenListItem = null;
+    } else {
+      // Alap helyreállítás
+      if (listItem.classList.contains('open')) {
+        contentWrapper.style.transform = 'translateX(-80px)';
+      } else {
+        contentWrapper.style.transform = 'translateX(0)';
+      }
+    }
+    if (crossedThreshold || (listItem.classList.contains('open') && currentX > 40)) {
+      wasJustDragging = true;
+      setTimeout(() => {
+        wasJustDragging = false;
+      }, 200); // növeljük a tiltást 200ms-ra a biztonság kedvéért
+    }
+  };
+
+  contentWrapper.addEventListener('mousedown', onDragStart);
+  contentWrapper.addEventListener('touchstart', onDragStart, { passive: true });
+
+  // Kuka ikon
+  const deleteBtn = document.createElement('div');
+  deleteBtn.className = 'delete-btn';
+  deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+  deleteBtn.addEventListener('click', () => {
+    listItem.classList.add('item-deleted');
+    handleDeleteItem(itemName);
+    setTimeout(() => {
+      if (listItem.parentNode) listItem.parentNode.removeChild(listItem);
+      if (currentlyOpenListItem === listItem) currentlyOpenListItem = null;
+    }, 300);
+  });
+  listItem.appendChild(deleteBtn);
+}
+
 async function handleAddItem() {
   const input = document.getElementById('newItemInput');
   const item = input.value.trim();
@@ -145,6 +242,17 @@ async function handleAddItem() {
   input.value = '';
   input.dispatchEvent(new Event('input'));
 }
+
+async function handleDeleteItem(itemToDelete) {
+  const topicRef = doc(db, "topics", currentTopic);
+  await updateDoc(topicRef, {
+    items: arrayRemove(itemToDelete)
+  });
+  decidedItems.delete(itemToDelete);
+  const index = accepted.indexOf(itemToDelete);
+  if (index > -1) accepted.splice(index, 1);
+}
+
 
 
 function startMatchPolling() {
@@ -212,6 +320,7 @@ async function checkMatch() {
 
     ownVotesList.appendChild(li);
     addVoteToggleListener(contentWrapper, item, hasVotedYes, hasDecided);
+    makeItemDeletable(li, contentWrapper, item);
   });
 
   const matchResultEl = document.getElementById("matchResult");
