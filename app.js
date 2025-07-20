@@ -221,6 +221,20 @@ function handleSwipe(yes) {
   showNextItem();
 }
 
+function startTopic(topic) {
+  currentTopic = topic;
+  currentItems = [...topics[topic]];
+  shuffle(currentItems);
+  currentIndex = 0;
+  accepted = [];
+  decidedItems.clear();
+  document.querySelector('#screen-swipe h2').textContent = currentTopic;
+  showNextItem();
+
+  startTopicListener(topic);
+  startMatchListener();
+}
+
 function showNextItem() {
   const card = document.getElementById("card");
   if (currentIndex >= currentItems.length) {
