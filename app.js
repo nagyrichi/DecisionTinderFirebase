@@ -4,6 +4,9 @@ let userId = null, sessionId = "global", matchInterval = null, pendingVoteModal 
 let wasJustDragging = false;
 let currentlyOpenListItem = null;
 
+let unsubscribeTopicListener = null;
+let unsubscribeMatchListener = null;
+
 // --- Segédfüggvények ---
 function generateUserId() { return 'user_' + Math.random().toString(36).substr(2, 9); }
 function shuffle(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [array[i], array[j]] = [array[j], array[i]]; } }
@@ -27,6 +30,7 @@ function addInstantClick(element, callback) {
 }
 
 // --- Firebase logika ---
+
 async function loadTopics() {
   const snapshot = await db.collection("topics").get();
   console.log("Topics snapshot:", snapshot);
@@ -46,7 +50,6 @@ async function loadTopics() {
   });
   console.log("Beállított select:", topicSelect);
 }
-
 
 async function onTopicNext() {
   const topicSelect = document.getElementById("topic");
@@ -73,6 +76,49 @@ async function checkSessionStatus() {
   }
 }
 
+// Új listener a topics dokumentumra (valós idejű figyelés új elem/törlés esetén)
+function startTopicListener(topic) {
+  if (unsubscribeTopicListener) unsubscribeTopicListener();
+
+  const topicDocRef = db.collection("topics").doc(topic);
+  unsubscribeTopicListener = topicDocRef.onSnapshot(doc => {
+    if (!doc.exists) return;
+
+    const newItems = doc.data().items || [];
+    // Frissítjük a lokális topics objektumot
+    topics[topic] = newItems;
+
+    // Ha éppen az aktuális témán vagyunk, frissítjük a swipet és új elem esetén jelezünk
+    if (currentTopic === topic) {
+      // Keresünk új itemeket
+      const newItemsSet = new Set(newItems);
+      let foundNew = false;
+      newItems.forEach(item => {
+        if (!decidedItems.has(item)) {
+          foundNew = true;
+          decidedItems.add(item);
+          // Felugró ablak új elemhez
+          showNewItemModal(item);
+        }
+      });
+
+      // Ha már a swipen túl vagyunk, frissítsük a listát (pl. ha új elem jött)
+      if (currentIndex >= currentItems.length) {
+        currentItems = [...newItems];
+      }
+    }
+  });
+}
+
+function showNewItemModal(item) {
+  const modalEl = document.getElementById('newItemModal');
+  if (!modalEl) return;
+
+  modalEl.querySelector('.modal-body').textContent = `Új elem érkezett: ${item}`;
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+}
+
 function startTopic(topic) {
   currentTopic = topic;
   currentItems = [...topics[topic]];
@@ -82,6 +128,9 @@ function startTopic(topic) {
   decidedItems.clear();
   document.querySelector('#screen-swipe h2').textContent = currentTopic;
   showNextItem();
+
+  startTopicListener(topic);
+  startMatchListener();
 }
 
 function showNextItem() {
@@ -89,7 +138,7 @@ function showNextItem() {
   if (currentIndex >= currentItems.length) {
     sendSwipes().then(() => {
       showScreen("screen-match");
-      startMatchListener();
+      // startMatchListener() már itt is fut, felesleges újra
     });
     return;
   }
@@ -255,17 +304,14 @@ async function handleDeleteItem(itemToDelete) {
 
 
 
-let unsubscribeMatchListener = null;
 
 function startMatchListener() {
-  // Ha már van aktív listener, előbb leiratkozunk róla
   if (unsubscribeMatchListener) unsubscribeMatchListener();
 
   unsubscribeMatchListener = db.collection("swipes")
     .where("session", "==", sessionId)
     .where("topic", "==", currentTopic)
     .onSnapshot(snapshot => {
-      // Csak akkor frissítünk, ha a match képernyő aktív
       if (!document.getElementById('screen-match').classList.contains('active-screen')) return;
 
       const allVotes = [];
@@ -286,9 +332,7 @@ function startMatchListener() {
       ownVotesList.innerHTML = "";
       const ownYesVotes = new Set(accepted);
 
-      // Minden elem egyszer jelenjen meg (összes item, amire valaki szavazott)
       const allItems = [...new Set(allVotes.flat())];
-
       allItems.forEach(item => {
         const li = document.createElement("li");
         li.className = "list-group-item p-0";
