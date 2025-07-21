@@ -8,21 +8,20 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '16'
+      - name: Use Node.js 20
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
 
-    - name: Install Firebase CLI
-      run: npm install -g firebase-tools
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
 
-    - name: Deploy to Firebase Hosting
-      env:
-        GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-service-account.json
-      run: |
-        echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > firebase-service-account.json
-        firebase deploy --only hosting --project decisiontinderfirebase
+      - name: Deploy to Firebase Hosting
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > firebase-service-account.json
+          firebase deploy --only hosting --project decisiontinderfirebase
