@@ -430,7 +430,13 @@ setInterval(async () => {
 */
 
 // --- Oldal betöltés ---
-window.onload = () => {
+window.onload = async () => {
+  if (firebase.apps.length) {
+    await firebase.app().delete();
+  }
+  const app = firebase.initializeApp(firebaseConfig);
+  window.db = firebase.firestore();
+
   userId = localStorage.getItem("swipy_user_id") || generateUserId();
   localStorage.setItem("swipy_user_id", userId);
   sessionId = "global";
