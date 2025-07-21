@@ -153,14 +153,24 @@ function showNextItem() {
 function handleSwipe(yes) {
   const item = currentItems[currentIndex];
   decidedItems.add(item);
+
   const card = document.getElementById("card");
   card.classList.add(yes ? "swipe-right" : "swipe-left");
+
   setTimeout(() => {
     if (yes && !accepted.includes(item)) accepted.push(item);
     currentIndex++;
-    showNextItem();
+    if (currentIndex >= currentItems.length) {
+      sendSwipes().then(() => {
+        showScreen("screen-match");
+        checkMatch(); // <<< ADD THIS!
+      });
+    } else {
+      showNextItem();
+    }
   }, 400);
 }
+
 
 async function sendSwipes() {
   const noVotes = Array.from(decidedItems).filter(item => !accepted.includes(item));
