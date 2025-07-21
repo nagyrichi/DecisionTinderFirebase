@@ -118,6 +118,8 @@ function startTopicListener(topic) {
 
 // --- Szavazatok realtime listener ---
 function startMatchListener() {
+  console.log("Saját votes objektum:", votes);
+
   if (unsubscribeMatchListener) unsubscribeMatchListener();
 
   unsubscribeMatchListener = db.collection("swipes")
@@ -219,7 +221,9 @@ function handleSwipe(yes) {
   votes[item] = yes ? "yes" : "no";
   currentIndex++;
   showNextItem();
+  sendSwipes();  // ide tedd be, hogy mentse rögtön
 }
+
 
 function startTopic(topic) {
   currentTopic = topic;
