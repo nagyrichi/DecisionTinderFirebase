@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="hu" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+
+  <title>Decision Tinder</title>
+  
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <link href="/DecisionTinderFirebase/style.css" rel="stylesheet" />
+
+  <link rel="manifest" href="/DecisionTinderFirebase/manifest.json" />
+
+  <meta name="theme-color" content="#0d6efd" />
+
+</head>
+<body>
+
+  <main class="app-container">
+
+    <!-- Téma kiválasztó -->
+    <div id="screen-topic">
+      <div class="text-center">
+        <h2 class="h3 mb-3 fw-normal">Miben döntünk ma?</h2>
+        <select id="topic" class="form-select form-select-lg mb-3"></select>
+        <div class="d-flex justify-content-between gap-2">
+          <button id="topicNextBtn" class="btn btn-primary w-100 py-2">Tovább <i class="fas fa-arrow-right"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Swipe képernyő -->
+    <div id="screen-swipe">
+        <h2 class="h3 fw-normal text-center flex-shrink-0">Ideje dönteni!</h2>
+        <div id="swipe-card-area">
+            <div class="card text-center shadow-lg" id="card">
+                <div id="itemText" class="card-body d-flex align-items-center justify-content-center h1"></div>
+            </div>
+        </div>
+        <div id="swipe-button-area" class="flex-shrink-0">
+          <div class="row g-2"> <!-- g-2 egy kis térközt (gutter) ad a gombok közé -->
+              <div class="col">
+                  <button id="noBtn" class="btn btn-danger btn-lg w-100">
+                      <i class="fas fa-xmark"></i> Nem
+                  </button>
+              </div>
+              <div class="col">
+                  <button id="yesBtn" class="btn btn-success btn-lg w-100">
+                      <i class="fas fa-heart"></i> Igen
+                  </button>
+                  
+              </div>
+          </div>
+
+          <!-- Igen/Nem gombok alatt -->
+          <button id="shareQrBtn" class="btn btn-outline-secondary w-100 mt-2">
+            <i class="fas fa-qrcode me-1"></i> Meghívás másoknak
+          </button>
+
+      </div>
+    </div>
+
+    <!-- Match eredmény -->
+    <div id="screen-match">
+        <div class="match-content-wrapper">
+            <h2 class="card-title h4 text-center flex-shrink-0">Eredmények</h2>
+            <div id="matchResult" class="alert alert-info text-center flex-shrink-0"></div>
+            <h3 class="h5 mt-4 flex-shrink-0">A te választásaid:</h3>
+            <ul id="ownVotes" class="list-group">
+                <!-- Ide generálódnak a sorok -->
+            </ul>
+        </div>
+        <div id="add-item-area" class="mt-auto pt-3">
+            <div class="input-group">
+                <input type="text" id="newItemInput" class="form-control" placeholder="Új javaslat hozzáadása">
+                <button id="addItemBtn" class="btn btn-outline-secondary">Hozzáadás</button>
+            </div>
+        </div>
+    </div>
+  </main>
+
+  <!-- Modális ablak -->
+  <div id="pendingVoteModal" class="modal fade" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+      <div id="pendingCard" class="modal-content">
+        <div class="modal-header border-0"><h5 class="modal-title">Új javaslat!</h5></div>
+        <div class="modal-body text-center">
+          <p>Valaki hozzáadta a listához:</p>
+          <h3 id="pendingItemText" class="mb-4"></h3>
+          <p>Neked tetszik?</p>
+        </div>
+        <div class="modal-footer border-0 d-flex justify-content-center gap-3">
+          <button id="pendingVoteNo" type="button" class="btn btn-danger btn-lg" style="width: 100px;"><i class="fas fa-xmark"></i></button>
+          <button id="pendingVoteYes" type="button" class="btn btn-success btn-lg" style="width: 100px;"><i class="fas fa-heart"></i></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="qrModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content text-center">
+        <div class="modal-header">
+          <h5 class="modal-title">Csatlakozás QR-kóddal</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+        </div>
+        <div class="modal-body">
+          <div id="qrCodeContainer" class="d-flex justify-content-center"></div>
+          <p class="mt-3 small text-muted" id="qrLinkText"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDp3HumzdoZ6SWWQX6wPLmk0RzYl0qPbjs",
+      authDomain: "decisiontinderfirebase.firebaseapp.com",
+      projectId: "decisiontinderfirebase",
+      storageBucket: "decisiontinderfirebase.firebasestorage.app",
+      messagingSenderId: "743649100420",
+      appId: "1:743649100420:web:18f276d16d855241dbf8d1",
+      measurementId: "G-2T7C1GQFXF"
+    };
+    
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    window.db = db;
+  </script>
+
+  <script src="/DecisionTinderFirebase/app.js"></script>
+
+</body>
+</html>
