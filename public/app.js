@@ -163,14 +163,17 @@ function handleSwipe(yes) {
 }
 
 async function sendSwipes() {
+  const noVotes = Array.from(decidedItems).filter(item => !accepted.includes(item));
   await db.collection("swipes").doc(`${sessionId}_${userId}`).set({
     user: userId,
     session: sessionId,
     topic: currentTopic,
-    swipes: accepted,
+    yes: accepted,
+    no: noVotes,
     timestamp: firebase.firestore.FieldValue.serverTimestamp()
   });
 }
+
 
 function makeItemDeletable(listItem, contentWrapper, itemName) {
   let startX = 0, currentX = 0, isDragging = false, crossedThreshold = false;
@@ -315,24 +318,36 @@ function startMatchListener() {
       if (!document.getElementById('screen-match').classList.contains('active-screen')) return;
 
       const allVotes = [];
-      snapshot.forEach(doc => allVotes.push(doc.data().swipes));
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        allVotes.push({ yes: data.yes || [], no: data.no || [] });
+      });
 
       const voteCounts = {};
       let matchSet = null;
+      const allItemsSet = new Set();
 
-      allVotes.forEach(votes => {
-        votes.forEach(item => {
+      allVotes.forEach(vote => {
+        vote.yes.forEach(item => {
           voteCounts[item] = (voteCounts[item] || 0) + 1;
+          allItemsSet.add(item);
         });
-        if (!matchSet) matchSet = new Set(votes);
-        else matchSet = new Set(votes.filter(x => matchSet.has(x)));
+        vote.no.forEach(item => {
+          allItemsSet.add(item);
+        });
+        if (!matchSet) matchSet = new Set(vote.yes);
+        else matchSet = new Set(vote.yes.filter(x => matchSet.has(x)));
       });
+
+      const allItems = Array.from(allItemsSet);
 
       const ownVotesList = document.getElementById("ownVotes");
       ownVotesList.innerHTML = "";
-      const ownYesVotes = new Set(accepted);
 
-      const allItems = [...new Set(allVotes.flat())];
+      // Saját igen/nem lekérdezés
+      const ownYesVotes = new Set(accepted);
+      const ownNoVotes = new Set(Array.from(decidedItems).filter(item => !accepted.includes(item)));
+
       allItems.forEach(item => {
         const li = document.createElement("li");
         li.className = "list-group-item p-0";
@@ -352,11 +367,17 @@ function startMatchListener() {
         countBadge.innerHTML = `<i class="fas fa-users me-1"></i>${voteCounts[item] || 0}`;
         badgesWrapper.appendChild(countBadge);
 
-        const hasVotedYes = ownYesVotes.has(item);
-        const hasDecided = decidedItems.has(item);
-        const voteBadge = document.createElement("span");
-        voteBadge.className = `badge rounded-pill ${hasVotedYes ? 'bg-success' : (hasDecided ? 'bg-danger' : 'bg-secondary')}`;
-        voteBadge.innerHTML = hasVotedYes ? 'Igen' : (hasDecided ? 'Nem' : '?');
+        let voteBadge = document.createElement("span");
+        if (ownYesVotes.has(item)) {
+          voteBadge.className = 'badge rounded-pill bg-success';
+          voteBadge.innerText = 'Igen';
+        } else if (ownNoVotes.has(item)) {
+          voteBadge.className = 'badge rounded-pill bg-danger';
+          voteBadge.innerText = 'Nem';
+        } else {
+          voteBadge.className = 'badge rounded-pill bg-secondary';
+          voteBadge.innerText = '?';
+        }
         badgesWrapper.appendChild(voteBadge);
 
         contentWrapper.appendChild(itemTextSpan);
@@ -364,7 +385,7 @@ function startMatchListener() {
         li.appendChild(contentWrapper);
 
         ownVotesList.appendChild(li);
-        addVoteToggleListener(contentWrapper, item, hasVotedYes, hasDecided);
+        addVoteToggleListener(contentWrapper, item, ownYesVotes.has(item), ownNoVotes.has(item));
         makeItemDeletable(li, contentWrapper, item);
       });
 
@@ -379,6 +400,7 @@ function startMatchListener() {
     });
 }
 
+
 function stopMatchListener() {
   if (unsubscribeMatchListener) {
     unsubscribeMatchListener();
@@ -391,24 +413,35 @@ async function checkMatch() {
 
   const swipesSnap = await db.collection("swipes").where("session", "==", sessionId).where("topic", "==", currentTopic).get();
   const allVotes = [];
-  swipesSnap.forEach(doc => allVotes.push(doc.data().swipes));
+  swipesSnap.forEach(doc => {
+    const data = doc.data();
+    allVotes.push({ yes: data.yes || [], no: data.no || [] });
+  });
 
   const voteCounts = {};
   let matchSet = null;
+  const allItemsSet = new Set();
 
-  allVotes.forEach(votes => {
-    votes.forEach(item => {
+  allVotes.forEach(vote => {
+    vote.yes.forEach(item => {
       voteCounts[item] = (voteCounts[item] || 0) + 1;
+      allItemsSet.add(item);
     });
-    if (!matchSet) matchSet = new Set(votes);
-    else matchSet = new Set(votes.filter(x => matchSet.has(x)));
+    vote.no.forEach(item => {
+      allItemsSet.add(item);
+    });
+    if (!matchSet) matchSet = new Set(vote.yes);
+    else matchSet = new Set(vote.yes.filter(x => matchSet.has(x)));
   });
+
+  const allItems = Array.from(allItemsSet);
 
   const ownVotesList = document.getElementById("ownVotes");
   ownVotesList.innerHTML = "";
-  const ownYesVotes = new Set(accepted);
 
-  const allItems = [...new Set(allVotes.flat())];
+  const ownYesVotes = new Set(accepted);
+  const ownNoVotes = new Set(Array.from(decidedItems).filter(item => !accepted.includes(item)));
+
   allItems.forEach(item => {
     const li = document.createElement("li");
     li.className = "list-group-item p-0";
@@ -428,11 +461,17 @@ async function checkMatch() {
     countBadge.innerHTML = `<i class="fas fa-users me-1"></i>${voteCounts[item] || 0}`;
     badgesWrapper.appendChild(countBadge);
 
-    const hasVotedYes = ownYesVotes.has(item);
-    const hasDecided = decidedItems.has(item);
-    const voteBadge = document.createElement("span");
-    voteBadge.className = `badge rounded-pill ${hasVotedYes ? 'bg-success' : (hasDecided ? 'bg-danger' : 'bg-secondary')}`;
-    voteBadge.innerHTML = hasVotedYes ? 'Igen' : (hasDecided ? 'Nem' : '?');
+    let voteBadge = document.createElement("span");
+    if (ownYesVotes.has(item)) {
+      voteBadge.className = 'badge rounded-pill bg-success';
+      voteBadge.innerText = 'Igen';
+    } else if (ownNoVotes.has(item)) {
+      voteBadge.className = 'badge rounded-pill bg-danger';
+      voteBadge.innerText = 'Nem';
+    } else {
+      voteBadge.className = 'badge rounded-pill bg-secondary';
+      voteBadge.innerText = '?';
+    }
     badgesWrapper.appendChild(voteBadge);
 
     contentWrapper.appendChild(itemTextSpan);
@@ -440,7 +479,7 @@ async function checkMatch() {
     li.appendChild(contentWrapper);
 
     ownVotesList.appendChild(li);
-    addVoteToggleListener(contentWrapper, item, hasVotedYes, hasDecided);
+    addVoteToggleListener(contentWrapper, item, ownYesVotes.has(item), ownNoVotes.has(item));
     makeItemDeletable(li, contentWrapper, item);
   });
 
@@ -453,6 +492,7 @@ async function checkMatch() {
     matchResultEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Várakozás...`;
   }
 }
+
 
 function addVoteToggleListener(element, item, hasVotedYes, hasDecided) {
   const callback = () => {
