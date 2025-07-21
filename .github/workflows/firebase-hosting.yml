@@ -3,28 +3,33 @@ name: Firebase Deploy
 on:
   push:
     branches:
-      - main
+    - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+    - uses: actions/checkout@v3
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
+    - name: Use Node.js 20
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
 
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
+    - name: Install Firebase CLI
+      run: npm install -g firebase-tools
 
-      - name: Setup Firebase service account
-        run: |
-          echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > firebase-service-account.json
+    - name: Setup Firebase service account
+      run: |
+        echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > firebase-service-account.json
 
-      - name: Deploy to Firebase Hosting
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: firebase-service-account.json
-        run: firebase deploy --only hosting --project decisiontinderfirebase
+    - name: Check service account file size
+      run: wc -c firebase-service-account.json
 
+    - name: Check first line of service account file
+      run: head -n 1 firebase-service-account.json
+
+    - name: Deploy to Firebase Hosting
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: firebase-service-account.json
+      run: firebase deploy --only hosting --project decisiontinderfirebase
