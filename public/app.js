@@ -419,6 +419,7 @@ addInstantClick(document.getElementById("shareQrBtn"), () => {
 });
 
 // --- Inaktivitás figyelés ---
+/*
 setInterval(async () => {
   if (Date.now() - lastActivityTimestamp > 60000) {
     await db.collection("session").doc(sessionId).delete();
@@ -426,6 +427,7 @@ setInterval(async () => {
     swipesSnap.forEach(doc => doc.ref.delete());
   }
 }, 10000);
+*/
 
 // --- Oldal betöltés ---
 window.onload = () => {
