@@ -130,8 +130,13 @@
       measurementId: "G-2T7C1GQFXF"
     };
     
+    if (firebase.apps.length) {
+      await firebase.app().delete();
+    }
+
     const app = firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+
     window.db = db;
   </script>
 
