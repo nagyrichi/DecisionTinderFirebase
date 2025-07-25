@@ -400,14 +400,12 @@ function makeItemDeletable(listItem, contentWrapper, itemName) {
   listItem.appendChild(deleteBtn);
 }
 
-async function handleDeleteItem(itemToDelete) {
-  const topicRef = doc(db, "topics", currentTopic);
-  await updateDoc(topicRef, {
-    items: arrayRemove(itemToDelete)
-  });
-  decidedItems.delete(itemToDelete);
-  const index = accepted.indexOf(itemToDelete);
-  if (index > -1) accepted.splice(index, 1);
+function handleDeleteItem(item) {
+  console.log("🔴 Törlés:", item);
+  if (votes[item]) delete votes[item];
+  accepted = accepted.filter(i => i !== item);
+  decidedItems.delete(item);
+  sendSwipes();
 }
 
 // --- Igen/Nem váltás ---
