@@ -232,13 +232,26 @@ function startMatchListener() {
 
 
 // --- Swipe ---
+
 function handleSwipe(yes) {
   const item = currentItems[currentIndex];
   decidedItems.add(item);
-  votes[item] = yes ? "yes" : "no";
-  currentIndex++;
-  showNextItem();
-  sendSwipes();  // ide tedd be, hogy mentse rögtön
+
+  const card = document.getElementById("card");
+  card.classList.add(yes ? "swipe-right" : "swipe-left");
+
+  setTimeout(() => {
+    if (yes && !accepted.includes(item)) accepted.push(item);
+    currentIndex++;
+    if (currentIndex >= currentItems.length) {
+      sendSwipes().then(() => {
+        showScreen("screen-match");
+        checkMatch();
+      });
+    } else {
+      showNextItem();
+    }
+  }, 400);
 }
 
 
@@ -411,17 +424,13 @@ async function handleDeleteItem(item) {
   // Firestore: swipes frissítése
   await sendSwipes();
 
-  // Lokális topics-ból törlés
-  topics[currentTopic] = topics[currentTopic].filter(i => i !== item);
-
-  // Firestore: topics frissítése
+  // Firestore: topics-ból törlés biztonságosan
   await db.collection("topics").doc(currentTopic).update({
-    items: topics[currentTopic]
+    items: firebase.firestore.FieldValue.arrayRemove(item)
   });
 
-  console.log("✅ Törölve a topics-ból is:", item);
+  console.log("✅ Törölve Firestore topics-ból is:", item);
 }
-
 
 // --- Igen/Nem váltás ---
 function addVoteToggleListener(el, item, hasVotedYes, hasDecided) {
