@@ -400,6 +400,16 @@ function makeItemDeletable(listItem, contentWrapper, itemName) {
   listItem.appendChild(deleteBtn);
 }
 
+async function handleDeleteItem(itemToDelete) {
+  const topicRef = doc(db, "topics", currentTopic);
+  await updateDoc(topicRef, {
+    items: arrayRemove(itemToDelete)
+  });
+  decidedItems.delete(itemToDelete);
+  const index = accepted.indexOf(itemToDelete);
+  if (index > -1) accepted.splice(index, 1);
+}
+
 // --- Igen/Nem váltás ---
 function addVoteToggleListener(el, item, hasVotedYes, hasDecided) {
   el.addEventListener('click', () => {
