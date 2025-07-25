@@ -400,13 +400,28 @@ function makeItemDeletable(listItem, contentWrapper, itemName) {
   listItem.appendChild(deleteBtn);
 }
 
-function handleDeleteItem(item) {
+async function handleDeleteItem(item) {
   console.log("🔴 Törlés:", item);
+
+  // Lokális törlés
   if (votes[item]) delete votes[item];
   accepted = accepted.filter(i => i !== item);
   decidedItems.delete(item);
-  sendSwipes();
+
+  // Firestore: swipes frissítése
+  await sendSwipes();
+
+  // Lokális topics-ból törlés
+  topics[currentTopic] = topics[currentTopic].filter(i => i !== item);
+
+  // Firestore: topics frissítése
+  await db.collection("topics").doc(currentTopic).update({
+    items: topics[currentTopic]
+  });
+
+  console.log("✅ Törölve a topics-ból is:", item);
 }
+
 
 // --- Igen/Nem váltás ---
 function addVoteToggleListener(el, item, hasVotedYes, hasDecided) {
