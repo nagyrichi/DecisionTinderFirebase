@@ -17,6 +17,7 @@ console.log("🔥 Firestore init done:", db);
 // --- Globális változók ---
 let topics = {}, currentTopic = null, currentItems = [], currentIndex = 0, votes = {}, decidedItems = new Set();
 let userId = null, sessionId = "global";
+let accepted = [];
 let unsubscribeTopicListener = null, unsubscribeMatchListener = null;
 let wasJustDragging = false, currentlyOpenListItem = null;
 let lastActivityTimestamp = Date.now();
