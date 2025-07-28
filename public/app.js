@@ -8,36 +8,127 @@ const firebaseConfig = {
   measurementId: "G-2T7C1GQFXF"
 };
 
-// Itt NEM KELL delete() — a module miatt csak egyszer fut le
 const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 console.log("🔥 Firestore init done:", db);
 
 // --- Globális változók ---
-let topics = {}, currentTopic = null, currentItems = [], currentIndex = 0, votes = {}, decidedItems = new Set();
-let userId = null, sessionId = "global";
+let topics = {};
+let currentTopic = null;
+let currentItems = [];
+let currentIndex = 0;
+let votes = {};
+let decidedItems = new Set();
+let userId = null;
+let sessionId = "global";
 let accepted = [];
-let unsubscribeTopicListener = null, unsubscribeMatchListener = null;
-let wasJustDragging = false, currentlyOpenListItem = null;
+let unsubscribeTopicListener = null;
+let unsubscribeMatchListener = null;
+let wasJustDragging = false;
+let currentlyOpenListItem = null;
 let lastActivityTimestamp = Date.now();
 
 // --- Segéd ---
 function generateUserId() {
   return 'user_' + Math.random().toString(36).substr(2, 9);
 }
+
 function shuffle(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [array[i], array[j]] = [array[j], array[i]];
   }
 }
+
 function getRandomPastelColor() {
   const hue = Math.floor(Math.random() * 360);
   return `hsl(${hue}, 30%, 40%)`;
 }
+
 function updateActivity() {
   lastActivityTimestamp = Date.now();
+}
+
+// --- Egyszerű session kezelés (heartbeat nélkül) ---
+async function joinSession() {
+  try {
+    // User hozzáadása a session-hoz
+    await db.collection("session").doc(sessionId).update({
+      [`active_users.${userId}`]: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    console.log(`🚀 [SESSION] User csatlakozott - userId: ${userId}, sessionId: ${sessionId}`);
+  } catch (error) {
+    console.error(`❌ [SESSION] Hiba a csatlakozásnál - userId: ${userId}`, error);
+  }
+}
+
+async function leaveSession() {
+  try {
+    console.log(`🚪 [SESSION] User kilépési kísérlet - userId: ${userId}, sessionId: ${sessionId}`);
+    
+    // User eltávolítása a session-ból
+    await db.collection("session").doc(sessionId).update({
+      [`active_users.${userId}`]: firebase.firestore.FieldValue.delete()
+    });
+    console.log(`✅ [SESSION] User sikeresen kilépett - userId: ${userId}`);
+    
+    // Ellenőrizzük, hogy maradt-e még valaki
+    await checkIfSessionEmpty();
+  } catch (error) {
+    console.log(`⚠️ [SESSION] Session már nem létezik vagy hiba történt - ${error.message}`);
+  }
+}
+
+async function checkIfSessionEmpty() {
+  try {
+    const sessionDoc = await db.collection("session").doc(sessionId).get();
+    if (!sessionDoc.exists) {
+      console.log(`📭 [SESSION] Session már nem létezik - sessionId: ${sessionId}`);
+      return;
+    }
+    
+    const data = sessionDoc.data();
+    const activeUsers = data.active_users || {};
+    const userCount = Object.keys(activeUsers).length;
+    
+    console.log(`👥 [SESSION] Aktív userek száma: ${userCount}, users: [${Object.keys(activeUsers).join(', ')}]`);
+    
+    // Ha nincs aktív user, töröljük a sessiont
+    if (userCount === 0) {
+      console.log(`🗑️ [SESSION] Session üres, törlés megkezdése - sessionId: ${sessionId}`);
+      await deleteSession();
+    }
+  } catch (error) {
+    console.error(`❌ [SESSION] Hiba az üres session ellenőrzésben`, error);
+  }
+}
+
+async function deleteSession() {
+  try {
+    console.log(`🗑️ [SESSION] Session törlése megkezdve - sessionId: ${sessionId}`);
+    
+    // Session törlése
+    await db.collection("session").doc(sessionId).delete();
+    console.log(`✅ [SESSION] Session dokumentum törölve - sessionId: ${sessionId}`);
+    
+    // Kapcsolódó swipe-ok törlése
+    const swipesSnapshot = await db.collection("swipes")
+      .where("session", "==", sessionId)
+      .get();
+      
+    console.log(`🧹 [SESSION] ${swipesSnapshot.size} db swipe dokumentum törlése...`);
+    
+    const batch = db.batch();
+    swipesSnapshot.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+    
+    console.log(`✅ [SESSION] Session és ${swipesSnapshot.size} db swipe törölve - sessionId: ${sessionId}`);
+  } catch (error) {
+    console.error(`❌ [SESSION] Hiba a session törlésekor`, error);
+  }
 }
 
 function addInstantClick(element, callback) {
@@ -59,55 +150,119 @@ function showScreen(screenId) {
 
 // --- Új item modal ---
 function showNewItemModal(item) {
-  const modalEl = document.getElementById('newItemModal');
+  const modalEl = document.getElementById('pendingVoteModal');
   if (!modalEl) return;
-  modalEl.querySelector('.modal-body').textContent = `Új elem érkezett: ${item}`;
+  modalEl.querySelector('#pendingItemText').textContent = item;
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
+  
+  console.log(`🆕 [MODAL] Új elem modal megjelenítve: "${item}"`);
 }
 
 // --- Témák betöltése ---
 async function loadTopics() {
-  const snapshot = await db.collection("topics").get();
-  topics = {};
-  snapshot.forEach(doc => {
-    topics[doc.id] = doc.data().items || [];
-  });
-  const topicSelect = document.getElementById("topic");
-  topicSelect.innerHTML = "";
-  Object.keys(topics).forEach(topic => {
-    const opt = document.createElement("option");
-    opt.value = topic;
-    opt.innerText = topic;
-    topicSelect.appendChild(opt);
-  });
+  try {
+    console.log(`📚 [TOPICS] Témák betöltése kezdődik...`);
+    
+    const snapshot = await db.collection("topics").get();
+    topics = {};
+    
+    snapshot.forEach(doc => {
+      const items = doc.data().items || [];
+      topics[doc.id] = items;
+      console.log(`📖 [TOPICS] "${doc.id}" betöltve - ${items.length} elem`);
+    });
+    
+    const topicSelect = document.getElementById("topic");
+    topicSelect.innerHTML = "";
+    
+    Object.keys(topics).forEach(topic => {
+      const opt = document.createElement("option");
+      opt.value = topic;
+      opt.innerText = topic;
+      topicSelect.appendChild(opt);
+    });
+    
+    console.log(`✅ [TOPICS] ${Object.keys(topics).length} téma sikeresen betöltve: [${Object.keys(topics).join(', ')}]`);
+  } catch (error) {
+    console.error(`❌ [TOPICS] Hiba a témák betöltésekor`, error);
+  }
 }
 
 // --- Session státusz ellenőrzés ---
 async function checkSessionStatus() {
-  const doc = await db.collection("session").doc(sessionId).get();
-  if (doc.exists && doc.data().topic) {
-    currentTopic = doc.data().topic;
-    startTopic(currentTopic);
-    showScreen("screen-swipe");
-  } else {
+  try {
+    console.log(`🔍 [INIT] Session státusz ellenőrzése - sessionId: ${sessionId}, userId: ${userId}`);
+    
+    const doc = await db.collection("session").doc(sessionId).get();
+    if (doc.exists && doc.data().topic) {
+      // Van aktív session -> csatlakozunk
+      currentTopic = doc.data().topic;
+      const activeUsers = Object.keys(doc.data().active_users || {});
+      
+      console.log(`📋 [INIT] Aktív session találva - topic: ${currentTopic}, activeUsers: [${activeUsers.join(', ')}]`);
+      
+      await joinSession(); // Jelezzük, hogy csatlakoztunk
+      
+      // Betöltjük a korábbi szavazatainkat a szerverről
+      await loadUserVotes();
+      
+      startTopic(currentTopic);
+      
+      // Eldöntjük, hogy swipe vagy match képernyőre kerüljünk
+      if (hasUserFinishedVoting()) {
+        console.log(`✅ [INIT] User már befejezte a szavazást, match képernyő`);
+        showScreen("screen-match");
+      } else {
+        console.log(`🎯 [INIT] User folytatja a szavazást`);
+        showScreen("screen-swipe");
+      }
+    } else {
+      // Nincs aktív session -> első vagyunk, topic választás
+      console.log(`🎯 [INIT] Nincs aktív session, topic választás mutatása`);
+      showScreen("screen-topic");
+    }
+  } catch (error) {
+    console.error(`❌ [INIT] Hiba a session státusz ellenőrzésben`, error);
     showScreen("screen-topic");
   }
 }
 
 // --- Téma választás ---
 async function onTopicNext() {
-  const topicSelect = document.getElementById("topic");
-  currentTopic = topicSelect.value;
-  if (!currentTopic) { alert("Válassz témát!"); return; }
+  try {
+    const topicSelect = document.getElementById("topic");
+    currentTopic = topicSelect.value;
+    if (!currentTopic) { 
+      console.log(`⚠️ [TOPIC] Nincs téma kiválasztva`);
+      alert("Válassz témát!"); 
+      return; 
+    }
 
-  await db.collection("session").doc(sessionId).set({
-    topic: currentTopic,
-    last_updated: firebase.firestore.FieldValue.serverTimestamp()
-  });
+    console.log(`🎯 [TOPIC] Új session létrehozása - topic: ${currentTopic}, userId: ${userId}`);
 
-  startTopic(currentTopic);
-  showScreen("screen-swipe");
+    // Session létrehozása
+    await db.collection("session").doc(sessionId).set({
+      topic: currentTopic,
+      last_updated: firebase.firestore.FieldValue.serverTimestamp(),
+      active_users: {
+        [userId]: firebase.firestore.FieldValue.serverTimestamp()
+      }
+    });
+
+    console.log(`✅ [TOPIC] Session sikeresen létrehozva - sessionId: ${sessionId}, topic: ${currentTopic}`);
+
+    // Új session esetén törljük a korábbi szavazatokat
+    votes = {};
+    accepted = [];
+    decidedItems.clear();
+
+    startTopic(currentTopic);
+    showScreen("screen-swipe");
+  } catch (error) {
+    console.error(`❌ [TOPIC] Hiba a session létrehozásban`, error);
+    alert("Hiba történt a session létrehozásakor!");
+  }
 }
 
 // --- Téma listener ---
@@ -121,21 +276,36 @@ function startTopicListener(topic) {
     topics[topic] = newItems;
 
     newItems.forEach(item => {
-      if (!decidedItems.has(item)) {
+      // Csak akkor mutassunk modal-t, ha a MATCH screen-en vagyunk és új elem érkezett
+      if (!decidedItems.has(item) && !votes.hasOwnProperty(item)) {
         decidedItems.add(item);
-        showNewItemModal(item);
+        
+        // Modal csak match screen-en
+        if (document.getElementById('screen-match').classList.contains('active-screen')) {
+          showNewItemModal(item);
+          console.log(`🆕 [TOPIC] Új elem érkezett match screen-en: "${item}"`);
+        } else {
+          console.log(`🆕 [TOPIC] Új elem érkezett swipe közben: "${item}" - modal elhalasztva`);
+        }
       }
     });
 
-    if (currentIndex >= currentItems.length) {
+    // Ha új elemek érkeztek és épp a swipe screen-en vagyunk, frissítsük a currentItems listát
+    if (document.getElementById('screen-swipe').classList.contains('active-screen')) {
+      const oldLength = currentItems.length;
       currentItems = [...newItems];
+      
+      if (newItems.length > oldLength) {
+        console.log(`📈 [TOPIC] ${newItems.length - oldLength} új elem hozzáadva a listához`);
+      }
     }
   });
 }
 
 // --- Szavazatok realtime listener ---
 function startMatchListener() {
-  console.log("Saját votes objektum:", votes);
+  console.log(`🎧 [MATCH] Match listener indítása - topic: ${currentTopic}, userId: ${userId}`);
+  console.log(`📊 [MATCH] Saját votes objektum:`, votes);
 
   if (unsubscribeMatchListener) unsubscribeMatchListener();
 
@@ -154,6 +324,8 @@ function startMatchListener() {
       const allItems = topics[currentTopic] || [];
       const totalUsers = Object.keys(userSwipes).length;
 
+      console.log(`📈 [MATCH] Szavazatok frissítése - ${totalUsers} user, ${allItems.length} item`);
+
       const voteCounts = {}; // item => hány YES szavazat van
       const ownVotes = votes; // lokális user votes
 
@@ -167,6 +339,8 @@ function startMatchListener() {
         }
         voteCounts[item] = yesCount;
       });
+
+      console.log(`🎯 [MATCH] Közös találatok: [${[...matchSet].join(', ')}] (${matchSet.size} db)`);
 
       const ownVotesList = document.getElementById("ownVotes");
       ownVotesList.innerHTML = "";
@@ -213,7 +387,7 @@ function startMatchListener() {
         ownVotesList.appendChild(li);
 
         // Katt a szavazat váltásához
-        addVoteToggleListener(contentWrapper, item, ownVote);
+        addVoteToggleListener(contentWrapper, item, ownVote === "yes");
 
         // Swipe-to-delete + Firestore törlés
         makeItemDeletable(li, contentWrapper, item);
@@ -237,13 +411,22 @@ function handleSwipe(yes) {
   const item = currentItems[currentIndex];
   decidedItems.add(item);
 
+  console.log(`👍👎 [SWIPE] Szavazat - "${item}": ${yes ? 'IGEN' : 'NEM'} (${currentIndex + 1}/${currentItems.length})`);
+
+  // Szavazat mentése a votes objektumba
+  votes[item] = yes ? "yes" : "no";
+
   const card = document.getElementById("card");
   card.classList.add(yes ? "swipe-right" : "swipe-left");
 
   setTimeout(() => {
-    if (yes && !accepted.includes(item)) accepted.push(item);
+    if (yes && !accepted.includes(item)) {
+      accepted.push(item);
+      console.log(`✅ [SWIPE] "${item}" hozzáadva az elfogadott listához`);
+    }
     currentIndex++;
     if (currentIndex >= currentItems.length) {
+      console.log(`📤 [SWIPE] Szavazás befejezve, eredmények küldése - elfogadott: [${accepted.join(', ')}]`);
       sendSwipes().then(() => {
         showScreen("screen-match");
         checkMatch();
@@ -256,12 +439,36 @@ function handleSwipe(yes) {
 
 
 function startTopic(topic) {
+  console.log(`🏁 [SWIPE] Téma indítása - topic: ${topic}, userId: ${userId}`);
+  
   currentTopic = topic;
   currentItems = [...topics[topic]];
   shuffle(currentItems);
+  
+  // Keressük meg, hogy hol tartunk a szavazásban
   currentIndex = 0;
-  accepted = [];
+  for (let i = 0; i < currentItems.length; i++) {
+    if (!votes.hasOwnProperty(currentItems[i])) {
+      currentIndex = i;
+      break;
+    }
+  }
+  
+  // Ha minden elemre szavaztunk, akkor a végére állítjuk
+  if (currentIndex === 0 && currentItems.length > 0 && votes.hasOwnProperty(currentItems[0])) {
+    currentIndex = currentItems.length;
+  }
+  
+  // decidedItems újraépítése - MINDEN létező elemet hozzáadunk
   decidedItems.clear();
+  currentItems.forEach(item => {
+    decidedItems.add(item);
+  });
+  
+  console.log(`🔀 [SWIPE] ${currentItems.length} elem keverve - jelenlegi pozíció: ${currentIndex}/${currentItems.length}`);
+  console.log(`📊 [SWIPE] Korábbi szavazatok: ${Object.keys(votes).length}, elfogadva: [${accepted.join(', ')}]`);
+  console.log(`🎯 [SWIPE] Decided items: [${[...decidedItems].join(', ')}]`);
+  
   document.querySelector('#screen-swipe h2').textContent = currentTopic;
   showNextItem();
 
@@ -272,10 +479,15 @@ function startTopic(topic) {
 function showNextItem() {
   const card = document.getElementById("card");
   if (currentIndex >= currentItems.length) {
+    console.log(`🏁 [SWIPE] Minden elem eldöntve (${currentItems.length}/${currentItems.length}), átváltás match képernyőre`);
     showScreen("screen-match");
     return;
   }
-  document.getElementById("itemText").innerText = currentItems[currentIndex];
+  
+  const item = currentItems[currentIndex];
+  console.log(`👀 [SWIPE] Következő elem megjelenítése - ${currentIndex + 1}/${currentItems.length}: "${item}"`);
+  
+  document.getElementById("itemText").innerText = item;
   card.style.backgroundColor = getRandomPastelColor();
   card.className = 'card text-center shadow-lg';
   card.style.transform = 'translateX(0) rotate(0deg)';
@@ -285,13 +497,24 @@ function showNextItem() {
 
 // --- Szavazat küldés ---
 async function sendSwipes() {
-  await db.collection("swipes").doc(`${sessionId}_${userId}`).set({
-    user: userId,
-    session: sessionId,
-    topic: currentTopic,
-    swipes: votes,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp()
-  });
+  try {
+    const voteCount = Object.keys(votes).length;
+    const yesCount = Object.values(votes).filter(v => v === "yes").length;
+    
+    console.log(`📤 [VOTES] Szavazatok küldése - összesen: ${voteCount}, igen: ${yesCount}, nem: ${voteCount - yesCount}`);
+    
+    await db.collection("swipes").doc(`${sessionId}_${userId}`).set({
+      user: userId,
+      session: sessionId,
+      topic: currentTopic,
+      swipes: votes,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    
+    console.log(`✅ [VOTES] Szavazatok sikeresen elküldve - userId: ${userId}, sessionId: ${sessionId}`);
+  } catch (error) {
+    console.error(`❌ [VOTES] Hiba a szavazatok küldésekor`, error);
+  }
 }
 
 // --- Swipe gesztus ---
@@ -414,47 +637,156 @@ function makeItemDeletable(listItem, contentWrapper, itemName) {
 }
 
 async function handleDeleteItem(item) {
-  console.log("🔴 Törlés:", item);
+  try {
+    console.log(`�️ [DELETE] Elem törlése megkezdve: "${item}"`);
 
-  // Lokális törlés
-  if (votes[item]) delete votes[item];
-  accepted = accepted.filter(i => i !== item);
-  decidedItems.delete(item);
+    // Lokális törlés
+    if (votes[item]) {
+      delete votes[item];
+      console.log(`🧹 [DELETE] Lokális vote törölve: "${item}"`);
+    }
+    accepted = accepted.filter(i => i !== item);
+    decidedItems.delete(item);
+    
+    console.log(`📝 [DELETE] Lokális adatok frissítve - elfogadottak: [${accepted.join(', ')}]`);
 
-  // Firestore: swipes frissítése
-  await sendSwipes();
+    // Firestore: swipes frissítése
+    await sendSwipes();
 
-  // Firestore: topics-ból törlés biztonságosan
-  await db.collection("topics").doc(currentTopic).update({
-    items: firebase.firestore.FieldValue.arrayRemove(item)
-  });
+    // Firestore: topics-ból törlés biztonságosan
+    await db.collection("topics").doc(currentTopic).update({
+      items: firebase.firestore.FieldValue.arrayRemove(item)
+    });
 
-  console.log("✅ Törölve Firestore topics-ból is:", item);
+    console.log(`✅ [DELETE] "${item}" sikeresen törölve mindenhonnan`);
+  } catch (error) {
+    console.error(`❌ [DELETE] Hiba az elem törlésekor: "${item}"`, error);
+  }
 }
 
 // --- Igen/Nem váltás ---
-function addVoteToggleListener(el, item, hasVotedYes, hasDecided) {
+function addVoteToggleListener(el, item, currentlyVotedYes) {
   el.addEventListener('click', () => {
-    if (wasJustDragging) return;
-    if (!hasDecided) return;
-    if (hasVotedYes) accepted = accepted.filter(i => i !== item);
-    else accepted.push(item);
+    if (wasJustDragging) {
+      console.log(`🚫 [VOTE] Kattintás blokkolva - épp drag történt`);
+      return;
+    }
+    
+    // Jelenlegi szavazat állapota
+    const wasYes = currentlyVotedYes;
+    const newVote = wasYes ? "no" : "yes";
+    
+    console.log(`🔄 [VOTE] Szavazat váltása - "${item}": ${wasYes ? 'IGEN' : 'NEM'} → ${newVote === 'yes' ? 'IGEN' : 'NEM'}`);
+    
+    // Frissítjük a votes objektumot
+    votes[item] = newVote;
+    
+    // Frissítjük az accepted listát
+    if (newVote === "yes" && !accepted.includes(item)) {
+      accepted.push(item);
+      console.log(`✅ [VOTE] "${item}" hozzáadva az elfogadottakhoz`);
+    } else if (newVote === "no") {
+      accepted = accepted.filter(i => i !== item);
+      console.log(`❌ [VOTE] "${item}" eltávolítva az elfogadottakból`);
+    }
+    
+    // Küldés a szervernek
     sendSwipes();
   });
 }
 
+// --- Match ellenőrzés (üres függvény, a listener automatikusan frissít) ---
+function checkMatch() {
+  console.log(`🔍 [MATCH] Match ellenőrzés hívva - a realtime listener automatikusan frissíti az eredményeket`);
+}
+
+// --- User szavazatok betöltése a szerverről ---
+async function loadUserVotes() {
+  try {
+    console.log(`📥 [VOTES] Korábbi szavazatok betöltése - userId: ${userId}`);
+    
+    const swipeDoc = await db.collection("swipes").doc(`${sessionId}_${userId}`).get();
+    
+    if (swipeDoc.exists) {
+      const data = swipeDoc.data();
+      votes = data.swipes || {};
+      
+      // Accepted lista újraépítése a votes alapján
+      accepted = [];
+      Object.entries(votes).forEach(([item, vote]) => {
+        if (vote === "yes") {
+          accepted.push(item);
+        }
+      });
+      
+      console.log(`✅ [VOTES] Szavazatok betöltve - ${Object.keys(votes).length} elem, elfogadva: [${accepted.join(', ')}]`);
+    } else {
+      console.log(`📭 [VOTES] Nincsenek korábbi szavazatok`);
+      votes = {};
+      accepted = [];
+    }
+  } catch (error) {
+    console.error(`❌ [VOTES] Hiba a szavazatok betöltésekor`, error);
+    votes = {};
+    accepted = [];
+  }
+}
+
+// --- Ellenőrzi, hogy a user befejezte-e a szavazást ---
+function hasUserFinishedVoting() {
+  const allItems = topics[currentTopic] || [];
+  const votedItems = Object.keys(votes);
+  
+  console.log(`🔍 [CHECK] Szavazás állapot - összes elem: ${allItems.length}, megszavazott: ${votedItems.length}`);
+  
+  // Ha minden elemre szavaztunk, akkor kész vagyunk
+  const isFinished = allItems.length > 0 && allItems.every(item => votes.hasOwnProperty(item));
+  
+  if (isFinished) {
+    console.log(`✅ [CHECK] User befejezte a szavazást`);
+  } else {
+    console.log(`🎯 [CHECK] User még nem fejezte be - hiányzó elemek: [${allItems.filter(item => !votes.hasOwnProperty(item)).join(', ')}]`);
+  }
+  
+  return isFinished;
+}
+
 // --- Új elem hozzáadása ---
 async function handleAddItem() {
-  const input = document.getElementById('newItemInput');
-  const item = input.value.trim();
-  if (!item) return;
-  if (!topics[currentTopic]) topics[currentTopic] = [];
-  topics[currentTopic].push(item);
-  await db.collection("topics").doc(currentTopic).update({ items: topics[currentTopic] });
-  if (!accepted.includes(item)) accepted.push(item);
-  await sendSwipes();
-  input.value = '';
-  input.dispatchEvent(new Event('input'));
+  try {
+    const input = document.getElementById('newItemInput');
+    const item = input.value.trim();
+    if (!item) {
+      console.log(`⚠️ [ADD] Üres elem, hozzáadás megszakítva`);
+      return;
+    }
+    
+    console.log(`➕ [ADD] Új elem hozzáadása: "${item}" a "${currentTopic}" témához`);
+    
+    if (!topics[currentTopic]) topics[currentTopic] = [];
+    topics[currentTopic].push(item);
+    
+    await db.collection("topics").doc(currentTopic).update({ 
+      items: topics[currentTopic] 
+    });
+    
+    console.log(`📝 [ADD] "${item}" hozzáadva a Firestore topics-hoz`);
+    
+    // AUTOMATIKUS IGEN szavazat a hozzáadónak (aki hozzáadta, annak tetszik)
+    votes[item] = "yes";
+    if (!accepted.includes(item)) {
+      accepted.push(item);
+      console.log(`✅ [ADD] "${item}" automatikusan elfogadva a hozzáadó által`);
+    }
+    
+    await sendSwipes();
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    
+    console.log(`✅ [ADD] Új elem sikeresen hozzáadva és szavazat elküldve`);
+  } catch (error) {
+    console.error(`❌ [ADD] Hiba az új elem hozzáadásakor`, error);
+  }
 }
 
 // --- QR ---
@@ -467,28 +799,107 @@ addInstantClick(document.getElementById("shareQrBtn"), () => {
   new bootstrap.Modal(document.getElementById("qrModal")).show();
 });
 
-// --- Inaktivitás figyelés ---
-/*
-setInterval(async () => {
-  if (Date.now() - lastActivityTimestamp > 60000) {
-    await db.collection("session").doc(sessionId).delete();
-    const swipesSnap = await db.collection("swipes").where("session", "==", sessionId).get();
-    swipesSnap.forEach(doc => doc.ref.delete());
-  }
-}, 10000);
-*/
-
 // --- Oldal betöltés ---
 window.onload = () => {
+  console.log(`🚀 [INIT] Alkalmazás indítása...`);
+  
   userId = localStorage.getItem("swipy_user_id") || generateUserId();
   localStorage.setItem("swipy_user_id", userId);
   sessionId = "global";
+  
+  console.log(`👤 [INIT] User ID: ${userId}, Session ID: ${sessionId}`);
+  
   loadTopics();
   checkSessionStatus();
   addInstantClick(document.getElementById("topicNextBtn"), onTopicNext);
   addInstantClick(document.getElementById("yesBtn"), () => handleSwipe(true));
   addInstantClick(document.getElementById("noBtn"), () => handleSwipe(false));
   addInstantClick(document.getElementById("addItemBtn"), handleAddItem);
+  
+  // Új elem input mező figyelése - gomb engedélyezés/tiltás
+  const newItemInput = document.getElementById('newItemInput');
+  const addItemBtn = document.getElementById('addItemBtn');
+  
+  function updateAddButtonState() {
+    const hasText = newItemInput.value.trim().length > 0;
+    addItemBtn.disabled = !hasText;
+    
+    // Vizuális állapot frissítése
+    if (hasText) {
+      addItemBtn.className = 'btn btn-primary';
+      addItemBtn.innerHTML = '<i class="fas fa-plus me-1"></i>Hozzáadás';
+    } else {
+      addItemBtn.className = 'btn btn-secondary';
+      addItemBtn.innerHTML = '<i class="fas fa-plus me-1"></i>Hozzáadás';
+    }
+    
+    console.log(`🎛️ [INPUT] Hozzáadás gomb állapot: ${hasText ? 'engedélyezve (kék)' : 'tiltva (szürke)'} - szöveg: "${newItemInput.value.trim()}"`);
+  }
+  
+  // Kezdeti állapot beállítása
+  updateAddButtonState();
+  
+  // Input esemény figyelése
+  newItemInput.addEventListener('input', updateAddButtonState);
+  
+  // Pending vote modal gombok
+  addInstantClick(document.getElementById("pendingVoteYes"), () => {
+    const item = document.getElementById('pendingItemText').textContent;
+    console.log(`✅ [MODAL] Új elem elfogadva: "${item}"`);
+    votes[item] = "yes";
+    if (!accepted.includes(item)) accepted.push(item);
+    sendSwipes();
+    bootstrap.Modal.getInstance(document.getElementById('pendingVoteModal')).hide();
+  });
+  
+  addInstantClick(document.getElementById("pendingVoteNo"), () => {
+    const item = document.getElementById('pendingItemText').textContent;
+    console.log(`❌ [MODAL] Új elem elutasítva: "${item}"`);
+    votes[item] = "no";
+    accepted = accepted.filter(i => i !== item);
+    sendSwipes();
+    bootstrap.Modal.getInstance(document.getElementById('pendingVoteModal')).hide();
+  });
+  
+  console.log(`✅ [INIT] Alkalmazás sikeresen inicializálva`);
 };
+
+// --- Oldal elhagyás figyelés ---
+window.addEventListener('beforeunload', () => {
+  console.log(`🚪 [EVENT] beforeunload event - user kilépés`);
+  leaveSession();
+});
+
+// További kilépés események figyelése
+window.addEventListener('pagehide', () => {
+  console.log(`🚪 [EVENT] pagehide event - user kilépés`);
+  leaveSession();
+});
+
+// Visibility API - ha a tab inaktív lesz HOSSZÚ IDEIG
+let visibilityTimer = null;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    // Tab elrejtve - várunk 2 percet, hátha visszajön
+    console.log(`👁️ [EVENT] Tab elrejtve, 2 perces timer indítása`);
+    visibilityTimer = setTimeout(() => {
+      console.log(`⏰ [EVENT] Tab 2 perce inaktív, kilépés végrehajtása`);
+      leaveSession();
+    }, 2 * 60 * 1000); // 2 perc
+  } else if (document.visibilityState === 'visible') {
+    // Tab ismét aktív - töröljük a timert és újra csatlakozunk
+    console.log(`👁️ [EVENT] Tab ismét látható`);
+    if (visibilityTimer) {
+      clearTimeout(visibilityTimer);
+      visibilityTimer = null;
+      console.log(`⏰ [EVENT] Timer törölve`);
+    }
+    // Ha van aktív topic, újra csatlakozunk
+    if (currentTopic && sessionId) {
+      console.log(`🔄 [EVENT] Újracsatlakozás sessionhez`);
+      joinSession();
+    }
+  }
+});
 
 

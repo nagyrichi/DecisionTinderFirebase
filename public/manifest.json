@@ -3,17 +3,17 @@
   "short_name": "Decision Tinder",
   "icons": [
     {
-      "src": "/DecisionTinderFirebase/static/icons/web-app-manifest-192x192.png",
+      "src": "static/icons/web-app-manifest-192x192.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "/DecisionTinderFirebase/static/icons/web-app-manifest-512x512.png",
+      "src": "static/icons/web-app-manifest-512x512.png",
       "type": "image/png",
       "sizes": "512x512"
     }
   ],
-  "start_url": "/DecisionTinderFirebase/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#121212",
   "theme_color": "#121212"
