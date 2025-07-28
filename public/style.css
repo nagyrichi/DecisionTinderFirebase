@@ -249,6 +249,18 @@ body {
   align-items: center;
   justify-content: center;
   user-select: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease; /* Hover animáció */
+}
+
+/* Kattintható badge hover effekt */
+.badge.rounded-pill[style*="cursor: pointer"]:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+/* Kattintható badge aktív állapot */
+.badge.rounded-pill[style*="cursor: pointer"]:active {
+  transform: scale(0.95);
 }
 
 

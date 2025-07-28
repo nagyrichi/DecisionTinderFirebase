@@ -501,6 +501,7 @@ function startMatchListener() {
         // Saját szavazat badge
         const ownVote = ownVotes[item];
         const voteBadge = document.createElement("span");
+        voteBadge.style.cursor = "pointer"; // Jelezzük, hogy kattintható
         if (ownVote === "yes") {
           voteBadge.className = "badge rounded-pill bg-success";
           voteBadge.innerText = "Igen";
@@ -519,8 +520,8 @@ function startMatchListener() {
 
         ownVotesList.appendChild(li);
 
-        // Katt a szavazat váltásához
-        addVoteToggleListener(contentWrapper, item, ownVote === "yes");
+        // Szavazat váltás csak a badge-re kattintva
+        addVoteToggleListener(voteBadge, item, ownVote === "yes");
 
         // Swipe-to-delete + Firestore törlés
         makeItemDeletable(li, contentWrapper, item);
