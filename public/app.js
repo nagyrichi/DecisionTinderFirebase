@@ -99,8 +99,6 @@ let sessionId = "global";
 let accepted = [];
 let unsubscribeTopicListener = null;
 let unsubscribeMatchListener = null;
-let wasJustDragging = false;
-let currentlyOpenListItem = null;
 let lastActivityTimestamp = Date.now();
 
 // Rejtett admin funkció
@@ -531,13 +529,10 @@ function startMatchListener() {
 
       allItems.forEach(item => {
         const li = document.createElement("li");
-        li.className = "list-group-item p-0";
-        li.style.position = 'relative';
-
-        const contentWrapper = document.createElement('div');
-        contentWrapper.className = "list-item-content d-flex justify-content-between align-items-center p-3";
+        li.className = "list-group-item";
 
         const itemTextSpan = document.createElement('span');
+        itemTextSpan.className = 'text-wrap';
         itemTextSpan.textContent = item;
 
         const badgesWrapper = document.createElement('div');
@@ -565,17 +560,16 @@ function startMatchListener() {
         }
         badgesWrapper.appendChild(voteBadge);
 
-        contentWrapper.appendChild(itemTextSpan);
-        contentWrapper.appendChild(badgesWrapper);
-        li.appendChild(contentWrapper);
+        li.appendChild(itemTextSpan);
+        li.appendChild(badgesWrapper);
 
         ownVotesList.appendChild(li);
 
         // Szavazat váltás csak a badge-re kattintva
         addVoteToggleListener(voteBadge, item, ownVote === "yes");
 
-        // Swipe-to-delete + Firestore törlés
-        makeItemDeletable(li, contentWrapper, item);
+        // Hosszú nyomás törléshez
+        addLongPressDeleteListener(li, item);
       });
 
       const matchResultEl = document.getElementById("matchResult");
@@ -723,105 +717,45 @@ function setupSwipeGesture(card) {
   card.ontouchend = () => onDragEnd();
 }
 
-// --- Swipe to reveal delete ---
-function makeItemDeletable(listItem, contentWrapper, itemName) {
-  let startX = 0, currentX = 0, isDragging = false, crossedThreshold = false;
-
-  const closeAnyOpen = () => {
-    if (currentlyOpenListItem && currentlyOpenListItem !== listItem) {
-      currentlyOpenListItem.classList.remove('open');
-      currentlyOpenListItem.querySelector('.list-item-content').style.transform = 'translateX(0)';
-      currentlyOpenListItem = null;
-    }
-  };
-
-  const onDragStart = (e) => {
-    if (e.type === 'mousedown' && e.button !== 0) return;
-    isDragging = true;
-    crossedThreshold = false;
-    startX = e.touches ? e.touches[0].clientX : e.clientX;
-    contentWrapper.style.transition = 'none';
-
-    closeAnyOpen();
-
-    document.addEventListener('mousemove', onDragMove);
-    document.addEventListener('mouseup', onDragEnd);
-    document.addEventListener('touchmove', onDragMove, { passive: true });
-    document.addEventListener('touchend', onDragEnd);
-  };
-
-  const onDragMove = (e) => {
-    if (!isDragging) return;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    currentX = clientX - startX;
-
-    if (currentX < -40) crossedThreshold = true;
-
-    if (currentX < 0) {
-      contentWrapper.style.transform = `translateX(${currentX}px)`;
-    } else if (currentX > 0 && listItem.classList.contains('open')) {
-      // Swipe back -> engedjük visszacsúszni
-      contentWrapper.style.transform = `translateX(${Math.min(currentX - 80, 0)}px)`;
-    } else {
-      contentWrapper.style.transform = 'translateX(0)';
-    }
-  };
-
-  const onDragEnd = () => {
-    if (!isDragging) return;
-    isDragging = false;
-
-    document.removeEventListener('mousemove', onDragMove);
-    document.removeEventListener('mouseup', onDragEnd);
-    document.removeEventListener('touchmove', onDragMove);
-    document.removeEventListener('touchend', onDragEnd);
-
-    contentWrapper.style.transition = 'transform 0.3s ease';
-
-    if (crossedThreshold) {
-      contentWrapper.style.transform = 'translateX(-80px)';
-      listItem.classList.add('open');
-      currentlyOpenListItem = listItem;
-    } else if (listItem.classList.contains('open') && currentX > 40) {
-      // Swipe back bezárás
-      contentWrapper.style.transform = 'translateX(0)';
-      listItem.classList.remove('open');
-      currentlyOpenListItem = null;
-    } else {
-      // Alap helyreállítás
-      if (listItem.classList.contains('open')) {
-        contentWrapper.style.transform = 'translateX(-80px)';
+// --- Hosszú nyomás törlés ---
+function addLongPressDeleteListener(listItem, itemName) {
+  let pressTimer = null;
+  let startTime = 0;
+  
+  const startPress = () => {
+    startTime = Date.now();
+    pressTimer = setTimeout(() => {
+      // 800ms után megkérdezzük
+      if (confirm(`Biztosan törlöd: "${itemName}"?`)) {
+        console.log(`🗑️ [LONGPRESS] User megerősítette a törlést: "${itemName}"`);
+        deleteItemFromFirestore(itemName);
       } else {
-        contentWrapper.style.transform = 'translateX(0)';
+        console.log(`🚫 [LONGPRESS] User lemondta a törlést: "${itemName}"`);
       }
-    }
-    if (crossedThreshold || (listItem.classList.contains('open') && currentX > 40)) {
-      wasJustDragging = true;
-      setTimeout(() => {
-        wasJustDragging = false;
-      }, 200); // növeljük a tiltást 200ms-ra a biztonság kedvéért
+    }, 800); // 800ms hosszú nyomás
+  };
+  
+  const cancelPress = () => {
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
     }
   };
-
-  contentWrapper.addEventListener('mousedown', onDragStart);
-  contentWrapper.addEventListener('touchstart', onDragStart, { passive: true });
-
-  // Kuka ikon
-  const deleteBtn = document.createElement('div');
-  deleteBtn.className = 'delete-btn';
-  deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
-  deleteBtn.addEventListener('click', () => {
-    listItem.classList.add('item-deleted');
-    handleDeleteItem(itemName);
-    setTimeout(() => {
-      if (listItem.parentNode) listItem.parentNode.removeChild(listItem);
-      if (currentlyOpenListItem === listItem) currentlyOpenListItem = null;
-    }, 300);
-  });
-  listItem.appendChild(deleteBtn);
+  
+  // Mouse események
+  listItem.addEventListener('mousedown', startPress);
+  listItem.addEventListener('mouseup', cancelPress);
+  listItem.addEventListener('mouseleave', cancelPress);
+  
+  // Touch események
+  listItem.addEventListener('touchstart', startPress, { passive: true });
+  listItem.addEventListener('touchend', cancelPress);
+  listItem.addEventListener('touchcancel', cancelPress);
+  listItem.addEventListener('touchmove', cancelPress); // Ha mozog, törljük
 }
 
-async function handleDeleteItem(item) {
+// --- Egyszerű törlés funkció ---
+async function deleteItemFromFirestore(item) {
   try {
     console.log(`�️ [DELETE] Elem törlése megkezdve: "${item}"`);
 
@@ -863,11 +797,6 @@ async function handleDeleteItem(item) {
 // --- Igen/Nem váltás ---
 function addVoteToggleListener(el, item, currentlyVotedYes) {
   el.addEventListener('click', () => {
-    if (wasJustDragging) {
-      console.log(`🚫 [VOTE] Kattintás blokkolva - épp drag történt`);
-      return;
-    }
-    
     // Jelenlegi szavazat állapota
     const wasYes = currentlyVotedYes;
     const newVote = wasYes ? "no" : "yes";

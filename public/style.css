@@ -41,12 +41,15 @@ body {
 #screen-topic,
 #screen-swipe,
 #screen-match {
-  display: none;
+  display: none; /* Alapértelmezetten rejtett */
   flex-direction: column;
   flex-grow: 1;
 }
 
-.active-screen {
+/* Aktív képernyő - magasabb specificitás */
+#screen-topic.active-screen,
+#screen-swipe.active-screen,
+#screen-match.active-screen {
   display: flex !important;
 }
 
@@ -113,11 +116,14 @@ body {
 }
 
 /* ===== MATCH KÉPERNYŐ ===== */
-#screen-match {
+#screen-match.active-screen {
   padding: 0;
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
-.match-content-wrapper {
+
+#screen-match .match-content-wrapper {
   background-color: var(--bs-card-bg);
   border-radius: var(--bs-card-border-radius);
   box-shadow: 0 .5rem 1rem rgba(0,0,0,.15);
@@ -127,84 +133,109 @@ body {
   flex-direction: column;
   min-height: 0; /* Kritikus a belső görgetéshez */
 }
-.match-content-wrapper > h2 {
+
+/* Fix fejlécek - csak match képernyőn */
+#screen-match .match-content-wrapper > h2 {
+  margin-bottom: 1rem;
+  flex-shrink: 0; /* Fix fejléc */
+}
+
+#screen-match #matchResult {
+  flex-shrink: 0; /* Fix eredmény rész */
   margin-bottom: 1rem;
 }
-#ownVotes {
+
+/* "A te választásaid" címe - csak match képernyőn */
+#screen-match .match-content-wrapper > h3 {
+  flex-shrink: 0; /* Fix cím */
+  margin-bottom: 1rem;
+  margin-top: 1rem;
+}
+
+/* Lista - csak ez görgethetö - csak match képernyőn */
+#screen-match #ownVotes {
   flex-grow: 1;
   overflow-y: auto;
   min-height: 0;
+  /* Szép scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.3) transparent;
 }
-#add-item-area {
+
+#screen-match #ownVotes::-webkit-scrollbar {
+  width: 8px;
+}
+
+#screen-match #ownVotes::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#screen-match #ownVotes::-webkit-scrollbar-thumb {
+  background-color: rgba(255,255,255,0.3);
+  border-radius: 4px;
+}
+
+#screen-match #ownVotes::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255,255,255,0.5);
+}
+
+/* Fix alsó rész - csak match képernyőn */
+#screen-match #add-item-area {
   padding: 1.5rem 1rem 1rem 1rem;
-  flex-shrink: 0;
+  flex-shrink: 0; /* Fix alsó rész */
 }
-#add-item-area .form-control {
+#screen-match #add-item-area .form-control {
   padding: 0.75rem 1rem;
   font-size: 1.1rem;
 }
-#add-item-area .btn {
+#screen-match #add-item-area .btn {
   padding: 0.75rem 1.25rem;
   font-size: 1.1rem;
 }
-#addItemBtn:disabled {
+#screen-match #addItemBtn:disabled {
   background-color: #343a40;
   border-color: #495057;
   color: #6c757d;
 }
 
-/* ===== SWIPE-TO-DELETE A LISTÁBAN (JAVÍTOTT) ===== */
-/* --- swipe-to-reveal delete gomb --- */
+/* ===== EGYSZERŰSÍTETT LISTAELEMEK ANIMÁCIÓS STÍLUSAI ===== */
 
-#ownVotes li {
-  position: relative;
-  overflow: hidden;
-  transition: height 0.3s ease, opacity 0.3s ease;
+/* Hover animáció egyszerűsítve */
+#ownVotes li:hover {
+  background-color: #3c3c3c !important;
 }
 
-#ownVotes li .list-item-content {
-  position: relative;
-  background: #1e1e1e;
-  z-index: 2;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  transform: translateX(0);
-  transition: transform 0.3s ease;
+/* Egyszerű törlés animáció */
+.item-deleted {
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 0.3s ease;
 }
 
-#ownVotes li .delete-btn {
-  position: absolute;
-  top: 0; right: 0; bottom: 0;
-  width: 80px;
-  background: #dc3545;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  cursor: pointer;
-  z-index: 1;
-}
-
-
-/* ha nyitva van */
-#ownVotes li.open .list-item-content {
-  transform: translateX(-80px);
-}
-
-/* === SAJÁT VÁLASZAID JAVÍTOTT MEGJELENÍTÉS === */
-
-/* Szöveg (bal oldali) - mindig középen, automatikus sortöréssel */
-#ownVotes li .list-item-content > span {
+/* Szöveg (bal oldali) - középre igazítás javítása */
+#ownVotes li .text-wrap {
   flex: 1;
   display: flex;
-  align-items: normal;
+  align-items: center;
   font-size: 1rem;
   padding: 0.5rem 0;
   line-height: 1.2;
   word-break: break-word;
+  color: #ffffff !important; /* Fehér szöveg */
+}
+
+/* Mobil stílusok a lista elemekhez */
+@media (max-width: 576px) {
+  .list-group-item {
+    min-height: 50px;
+    margin-bottom: 0.3rem;
+    padding: 0.75rem !important;
+  }
+  
+  .list-group-item .text-wrap {
+    font-size: 0.9rem;
+    line-height: 1.3;
+  }
 }
 
 /* Gombok */
@@ -276,4 +307,82 @@ input[type="text"] {
   -webkit-user-select: text;
   user-select: text;
   touch-action: auto;
+}
+
+/* ===== LISTA ELEMEK ALAPVETŐ STÍLUSAI ===== */
+.list-group-item {
+  border: 1px solid var(--bs-gray-600) !important;
+  border-radius: 0.5rem !important;
+  margin-bottom: 0.5rem;
+  padding: 1rem !important; /* Visszaállítjuk a padding-et */
+  transition: all 0.2s ease;
+  background-color: #2c2c2c !important; /* Sötét háttér */
+  color: #ffffff !important; /* Fehér szöveg */
+  position: relative;
+  /* Fix magasság beállítás és középre igazítás */
+  min-height: 60px;
+  height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer; /* Jelezzük, hogy interaktív */
+}
+
+.list-group-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  background-color: #3c3c3c !important; /* Világosabb sötét hover */
+}
+
+/* Hosszú nyomás vizuális visszajelzés */
+.list-group-item:active {
+  background-color: #4c4c4c !important;
+  transform: scale(0.98);
+}
+
+.list-group-item:last-child {
+  margin-bottom: 0;
+}
+
+/* Mobil stílusok a lista elemekhez */
+@media (max-width: 576px) {
+  .list-group-item {
+    padding: 0.75rem;
+    min-height: 50px;
+    margin-bottom: 0.3rem;
+  }
+  
+  .list-group-item .text-wrap {
+    font-size: 0.9rem;
+    line-height: 1.3;
+  }
+}
+
+/* Törlés animáció - egyszerűsített */
+.deleting {
+  opacity: 0.5;
+  transform: scale(0.9);
+}
+
+/* Badge pozícionálás fix */
+.list-group-item .badge {
+  flex-shrink: 0;
+  min-width: 40px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  margin-left: 0.5rem;
+}
+
+.list-group-item .text-wrap {
+  flex-grow: 1;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  hyphens: auto;
+  color: #ffffff !important; /* Fehér szöveg */
 }
