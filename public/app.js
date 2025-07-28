@@ -13,7 +13,7 @@ const db = firebase.firestore();
 
 console.log("🔥 Firebase inicializálva");
 
-// Adatbázis tartalom kiírása
+// Debug funkció: teljes adatbázis tartalom kiírása
 async function logDatabaseContents() {
   try {
     const [sessionsSnap, swipesSnap, topicsSnap] = await Promise.all([
@@ -22,15 +22,59 @@ async function logDatabaseContents() {
       db.collection("topics").get()
     ]);
     
-    console.log(`📊 [DB] Jelenlegi adatbázis állapot:`);
+    console.log(`📊 [DB] ========== TELJES ADATBÁZIS DUMP ==========`);
     console.log(`   📂 Sessions: ${sessionsSnap.size} db`);
     console.log(`   📂 Swipes: ${swipesSnap.size} db`);
     console.log(`   📂 Topics: ${topicsSnap.size} db`);
+    console.log(`================================================`);
     
-    topicsSnap.forEach(doc => {
-      const items = doc.data().items || [];
-      console.log(`   📖 Topic "${doc.id}": ${items.length} elem - [${items.slice(0, 3).join(', ')}${items.length > 3 ? '...' : ''}]`);
-    });
+    // Sessions részletes kiírása
+    console.log(`🗂️ [SESSIONS] Részletes tartalom:`);
+    if (sessionsSnap.size === 0) {
+      console.log(`   (nincs session)`);
+    } else {
+      sessionsSnap.forEach(doc => {
+        const data = doc.data();
+        console.log(`   📋 Session ID: ${doc.id}`);
+        console.log(`      ├─ topic: "${data.topic}"`);
+        console.log(`      ├─ users: [${data.users ? data.users.join(', ') : 'nincs'}]`);
+        console.log(`      ├─ createdAt: ${data.createdAt ? new Date(data.createdAt.toDate()).toLocaleString() : 'nincs'}`);
+        console.log(`      └─ lastActivity: ${data.lastActivity ? new Date(data.lastActivity.toDate()).toLocaleString() : 'nincs'}`);
+      });
+    }
+    
+    // Swipes részletes kiírása
+    console.log(`🎯 [SWIPES] Részletes tartalom:`);
+    if (swipesSnap.size === 0) {
+      console.log(`   (nincs swipe)`);
+    } else {
+      swipesSnap.forEach(doc => {
+        const data = doc.data();
+        console.log(`   👆 Swipe ID: ${doc.id}`);
+        console.log(`      ├─ sessionId: ${data.sessionId}`);
+        console.log(`      ├─ userId: ${data.userId}`);
+        console.log(`      ├─ item: "${data.item}"`);
+        console.log(`      ├─ vote: ${data.vote}`);
+        console.log(`      └─ timestamp: ${data.timestamp ? new Date(data.timestamp.toDate()).toLocaleString() : 'nincs'}`);
+      });
+    }
+    
+    // Topics részletes kiírása
+    console.log(`📖 [TOPICS] Részletes tartalom:`);
+    if (topicsSnap.size === 0) {
+      console.log(`   (nincs topic)`);
+    } else {
+      topicsSnap.forEach(doc => {
+        const data = doc.data();
+        const items = data.items || [];
+        console.log(`   📚 Topic ID: ${doc.id}`);
+        console.log(`      ├─ elemek száma: ${items.length}`);
+        console.log(`      └─ elemek: [${items.join(', ')}]`);
+      });
+    }
+    
+    console.log(`================================================`);
+    console.log(`✅ [DB] Adatbázis dump befejezve`);
   } catch (error) {
     console.log(`⚠️ [DB] Nem sikerült betölteni az adatbázis tartalmat:`, error.message);
   }
@@ -38,6 +82,10 @@ async function logDatabaseContents() {
 
 // 1 másodperc múlva kiírjuk az adatbázis tartalmat
 setTimeout(logDatabaseContents, 1000);
+
+// Globális debug funkció - konzolból hívható: window.dbDump()
+window.dbDump = logDatabaseContents;
+console.log(`🔧 [DEBUG] Használd: window.dbDump() a teljes adatbázis dump-hoz`);
 
 // --- Globális változók ---
 let topics = {};
@@ -355,6 +403,9 @@ async function onTopicNext() {
     });
 
     console.log(`✅ [TOPIC] Session sikeresen létrehozva - sessionId: ${sessionId}, topic: ${currentTopic}`);
+    
+    // Adatbázis dump session létrehozás után
+    setTimeout(() => logDatabaseContents(), 500);
 
     // Új session esetén törljük a korábbi szavazatokat
     votes = {};
@@ -790,6 +841,9 @@ async function handleDeleteItem(item) {
       items: firebase.firestore.FieldValue.arrayRemove(item)
     });
     console.log(`🔥 [DELETE] Firestore topics frissítve - realtime listener aktiválva`);
+    
+    // Adatbázis dump törlés után
+    setTimeout(() => logDatabaseContents(), 500);
 
     // MÁSODIK: Swipes frissítése - ezzel minden user-nél frissül a vote lista
     await sendSwipes();
@@ -934,6 +988,9 @@ async function handleAddItem() {
     input.dispatchEvent(new Event('input'));
     
     console.log(`✅ [ADD] Új elem sikeresen hozzáadva és szavazat elküldve`);
+    
+    // Adatbázis dump hozzáadás után
+    setTimeout(() => logDatabaseContents(), 500);
   } catch (error) {
     console.error(`❌ [ADD] Hiba az új elem hozzáadásakor`, error);
   }
