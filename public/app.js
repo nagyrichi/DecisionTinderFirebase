@@ -11,7 +11,33 @@ const firebaseConfig = {
 const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-console.log("🔥 Firestore init done:", db);
+console.log("🔥 Firebase inicializálva");
+
+// Adatbázis tartalom kiírása
+async function logDatabaseContents() {
+  try {
+    const [sessionsSnap, swipesSnap, topicsSnap] = await Promise.all([
+      db.collection("session").get(),
+      db.collection("swipes").get(),
+      db.collection("topics").get()
+    ]);
+    
+    console.log(`📊 [DB] Jelenlegi adatbázis állapot:`);
+    console.log(`   📂 Sessions: ${sessionsSnap.size} db`);
+    console.log(`   📂 Swipes: ${swipesSnap.size} db`);
+    console.log(`   📂 Topics: ${topicsSnap.size} db`);
+    
+    topicsSnap.forEach(doc => {
+      const items = doc.data().items || [];
+      console.log(`   📖 Topic "${doc.id}": ${items.length} elem - [${items.slice(0, 3).join(', ')}${items.length > 3 ? '...' : ''}]`);
+    });
+  } catch (error) {
+    console.log(`⚠️ [DB] Nem sikerült betölteni az adatbázis tartalmat:`, error.message);
+  }
+}
+
+// 1 másodperc múlva kiírjuk az adatbázis tartalmat
+setTimeout(logDatabaseContents, 1000);
 
 // --- Globális változók ---
 let topics = {};
@@ -28,6 +54,13 @@ let unsubscribeMatchListener = null;
 let wasJustDragging = false;
 let currentlyOpenListItem = null;
 let lastActivityTimestamp = Date.now();
+
+// Rejtett admin funkció
+let secretClickCount = 0;
+let secretClickTimer = null;
+
+// Hozzáadott elemek követése userid szerint - hogy ne kapjon modal a hozzáadó
+let userAddedItems = new Set();
 
 // --- Segéd ---
 function generateUserId() {
@@ -46,8 +79,79 @@ function getRandomPastelColor() {
   return `hsl(${hue}, 30%, 40%)`;
 }
 
+function getSessionIdFromURL() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('session');
+}
+
 function updateActivity() {
   lastActivityTimestamp = Date.now();
+}
+
+// --- Rejtett admin funkció (5x gyors kattintás az "Eredmények" címre) ---
+async function secretAdminCleanup() {
+  try {
+    console.log(`🔥 [SECRET] ADMIN CLEANUP MEGKEZDÉSE - MINDEN ADAT TÖRLÉSE`);
+    
+    // 1. Minden session törlése
+    const sessionsSnapshot = await db.collection("session").get();
+    console.log(`🗑️ [SECRET] ${sessionsSnapshot.size} db session törlése...`);
+    
+    const sessionBatch = db.batch();
+    sessionsSnapshot.forEach(doc => {
+      sessionBatch.delete(doc.ref);
+    });
+    await sessionBatch.commit();
+    
+    // 2. Minden swipe törlése
+    const swipesSnapshot = await db.collection("swipes").get();
+    console.log(`🗑️ [SECRET] ${swipesSnapshot.size} db swipe törlése...`);
+    
+    const swipesBatch = db.batch();
+    swipesSnapshot.forEach(doc => {
+      swipesBatch.delete(doc.ref);
+    });
+    await swipesBatch.commit();
+    
+    // 3. Lokális adatok törlése
+    localStorage.removeItem("swipy_user_id");
+    
+    console.log(`✅ [SECRET] TELJES CLEANUP BEFEJEZVE - ${sessionsSnapshot.size} session, ${swipesSnapshot.size} swipe törölve`);
+    
+    // Visszajelzés a usernek
+    alert(`🔥 ADMIN CLEANUP KÉSZ!\n\nTörölve:\n- ${sessionsSnapshot.size} session\n- ${swipesSnapshot.size} swipe\n- localStorage adatok\n\nOldal újratöltése...`);
+    
+    // Oldal újratöltése
+    window.location.reload();
+    
+  } catch (error) {
+    console.error(`❌ [SECRET] Hiba az admin cleanup-ban`, error);
+    alert(`❌ Hiba történt: ${error.message}`);
+  }
+}
+
+function handleSecretClick() {
+  secretClickCount++;
+  console.log(`🤫 [SECRET] Rejtett kattintás ${secretClickCount}/5`);
+  
+  // Timer törlése és újraindítása
+  if (secretClickTimer) {
+    clearTimeout(secretClickTimer);
+  }
+  
+  // Ha 5 kattintás 3 másodpercen belül
+  if (secretClickCount >= 5) {
+    console.log(`🔥 [SECRET] 5 kattintás elérve - admin cleanup aktiválása!`);
+    secretClickCount = 0;
+    secretAdminCleanup();
+    return;
+  }
+  
+  // 3 másodperc után reset
+  secretClickTimer = setTimeout(() => {
+    console.log(`⏰ [SECRET] Timeout - counter reset`);
+    secretClickCount = 0;
+  }, 3000);
 }
 
 // --- Egyszerű session kezelés (heartbeat nélkül) ---
@@ -256,6 +360,7 @@ async function onTopicNext() {
     votes = {};
     accepted = [];
     decidedItems.clear();
+    userAddedItems.clear(); // Saját hozzáadott elemek is törlődnek
 
     startTopic(currentTopic);
     showScreen("screen-swipe");
@@ -273,11 +378,36 @@ function startTopicListener(topic) {
   unsubscribeTopicListener = topicDocRef.onSnapshot(doc => {
     if (!doc.exists) return;
     const newItems = doc.data().items || [];
+    const oldItems = topics[topic] || [];
+    
+    // Törölt elemek detektálása
+    const deletedItems = oldItems.filter(item => !newItems.includes(item));
+    if (deletedItems.length > 0) {
+      console.log(`🗑️ [TOPIC] Törött elemek detektálva: [${deletedItems.join(', ')}]`);
+      
+      // Törölt elemek eltávolítása a lokális adatokból
+      deletedItems.forEach(item => {
+        if (votes[item]) {
+          delete votes[item];
+          console.log(`🧹 [TOPIC] Törölt elem szavazata eltávolítva: "${item}"`);
+        }
+        accepted = accepted.filter(i => i !== item);
+        decidedItems.delete(item);
+      });
+      
+      // Ha match screen-en vagyunk, frissítsük a listát
+      if (document.getElementById('screen-match').classList.contains('active-screen')) {
+        console.log(`🔄 [TOPIC] Match lista frissítése törlés után`);
+        // A match listener automatikusan frissíti a listát
+      }
+    }
+    
     topics[topic] = newItems;
 
     newItems.forEach(item => {
       // Csak akkor mutassunk modal-t, ha a MATCH screen-en vagyunk és új elem érkezett
-      if (!decidedItems.has(item) && !votes.hasOwnProperty(item)) {
+      // ÉS a user nem ő maga adta hozzá
+      if (!decidedItems.has(item) && !votes.hasOwnProperty(item) && !userAddedItems.has(item)) {
         decidedItems.add(item);
         
         // Modal csak match screen-en
@@ -287,6 +417,9 @@ function startTopicListener(topic) {
         } else {
           console.log(`🆕 [TOPIC] Új elem érkezett swipe közben: "${item}" - modal elhalasztva`);
         }
+      } else if (userAddedItems.has(item)) {
+        console.log(`🚫 [TOPIC] Saját hozzáadott elem: "${item}" - modal kihagyva`);
+        decidedItems.add(item); // Biztosítsuk, hogy decided legyen
       }
     });
 
@@ -647,18 +780,26 @@ async function handleDeleteItem(item) {
     }
     accepted = accepted.filter(i => i !== item);
     decidedItems.delete(item);
+    userAddedItems.delete(item); // User added items-ból is töröljük
     
     console.log(`📝 [DELETE] Lokális adatok frissítve - elfogadottak: [${accepted.join(', ')}]`);
 
-    // Firestore: swipes frissítése
-    await sendSwipes();
-
-    // Firestore: topics-ból törlés biztonságosan
+    // ELSŐ: Firestore topics-ból törlés - EZ TRIGGERELI A TOPIC LISTENER-T MINDENKINEK!
     await db.collection("topics").doc(currentTopic).update({
       items: firebase.firestore.FieldValue.arrayRemove(item)
     });
+    console.log(`🔥 [DELETE] Firestore topics frissítve - realtime listener aktiválva`);
 
-    console.log(`✅ [DELETE] "${item}" sikeresen törölve mindenhonnan`);
+    // MÁSODIK: Swipes frissítése - ezzel minden user-nél frissül a vote lista
+    await sendSwipes();
+
+    // Lokális topics objektum frissítése is
+    if (topics[currentTopic]) {
+      topics[currentTopic] = topics[currentTopic].filter(i => i !== item);
+      console.log(`🔄 [DELETE] Lokális topics objektum frissítve`);
+    }
+
+    console.log(`✅ [DELETE] "${item}" sikeresen törölve mindenhonnan - realtime sync aktiválva`);
   } catch (error) {
     console.error(`❌ [DELETE] Hiba az elem törlésekor: "${item}"`, error);
   }
@@ -763,6 +904,10 @@ async function handleAddItem() {
     
     console.log(`➕ [ADD] Új elem hozzáadása: "${item}" a "${currentTopic}" témához`);
     
+    // Rögzítjük, hogy ez a user adta hozzá - ne kapjon róla modal-t
+    userAddedItems.add(item);
+    console.log(`📝 [ADD] Elem rögzítve saját hozzáadásként: "${item}"`);
+    
     if (!topics[currentTopic]) topics[currentTopic] = [];
     topics[currentTopic].push(item);
     
@@ -778,6 +923,10 @@ async function handleAddItem() {
       accepted.push(item);
       console.log(`✅ [ADD] "${item}" automatikusan elfogadva a hozzáadó által`);
     }
+    
+    // Hozzáadó ne kapjon modal-t - már döntött
+    decidedItems.add(item);
+    console.log(`🚫 [ADD] "${item}" hozzáadva a decided items-hez - nincs modal a hozzáadónak`);
     
     await sendSwipes();
     input.value = '';
@@ -808,6 +957,24 @@ window.onload = () => {
   sessionId = "global";
   
   console.log(`👤 [INIT] User ID: ${userId}, Session ID: ${sessionId}`);
+  
+  // --- Rejtett admin funkció aktiválása ---
+  const resultsTitle = document.querySelector("#screen-match h2");
+  if (resultsTitle) {
+    resultsTitle.addEventListener("click", handleSecretClick);
+    console.log(`🤫 [SECRET] Admin listener telepítve az Eredmények címre`);
+  } else {
+    console.log(`❌ [SECRET] Eredmények cím nem található!`);
+  }
+  
+  // Automatikus join ha van sessionId a URL-ben
+  const urlSessionId = getSessionIdFromURL();
+  console.log(`🔗 [INIT] URL session ID ellenőrzés:`, urlSessionId ? urlSessionId : "nincs");
+  
+  if (urlSessionId) {
+    sessionId = urlSessionId;
+    joinSession(urlSessionId);
+  }
   
   loadTopics();
   checkSessionStatus();
@@ -901,5 +1068,7 @@ document.addEventListener('visibilitychange', () => {
     }
   }
 });
+
+
 
 

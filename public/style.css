@@ -15,6 +15,16 @@ body {
   user-select: none;
 }
 
+/* iOS PWA specifikus beállítások */
+@supports (-webkit-touch-callout: none) {
+  body {
+    /* iOS Safari status bar hack */
+    padding-top: constant(safe-area-inset-top);
+    padding-top: env(safe-area-inset-top);
+    background-color: #121212;
+  }
+}
+
 /* ===== FŐ KONZISZTENS KERET ===== */
 .app-container {
   margin-top: env(safe-area-inset-top);
@@ -24,6 +34,7 @@ body {
   margin-right: auto;
   display: flex;
   flex-direction: column;
+  background-color: #121212;
 }
 
 /* ===== KÉPERNYŐK ===== */
