@@ -497,57 +497,101 @@ function startMatchListener() {
     .onSnapshot(snapshot => {
       if (!document.getElementById('screen-match').classList.contains('active-screen')) return;
 
-      const userSwipes = {}; // userId => { item: vote, ... }
+      const userSwipes = {};
       snapshot.forEach(doc => {
         const data = doc.data();
         userSwipes[data.user] = data.swipes || {};
       });
 
-      const allItems = topics[currentTopic] || [];
-      const totalUsers = Object.keys(userSwipes).length;
+      const originalItems = topics[currentTopic] || [];
+      console.log("📢 originalItems:", originalItems);
 
-      console.log(`📈 [MATCH] Szavazatok frissítése - ${totalUsers} user, ${allItems.length} item`);
+      const subtopicsSamples = {
+        "Pizza": ["Margherita", "Hawaii", "Pepperoni"],
+        "Sushi": ["Maki", "Nigiri", "Sashimi"],
+        "Hamburger": ["Classic", "Cheese", "Bacon"],
+        "Pho leves": ["Marhahúsos", "Csirkehúsos", "Vegán"],
+        "Tészta": ["Carbonara", "Pesto", "Bolognese"],
+        "Gyros": ["Csirke", "Marha", "Vegán"],
+        "Ramen": ["Tonkotsu", "Shoyu", "Miso"]
+      };
 
-      const voteCounts = {}; // item => hány YES szavazat van
-      const ownVotes = votes; // lokális user votes
-
-      let matchSet = new Set(allItems);
-
-      allItems.forEach(item => {
-        let yesCount = 0;
-        for (const user in userSwipes) {
-          if (userSwipes[user][item] === "yes") yesCount++;
-          if (userSwipes[user][item] !== "yes") matchSet.delete(item);
-        }
-        voteCounts[item] = yesCount;
+      // Subtopicokat minden fő itemhez megadunk (ha nincs, üres lista)
+      const allItemsWithSubtopics = originalItems.map(item => {
+        let subs = subtopicsSamples[item] || [];
+        return {
+          name: item,
+          subtopics: subs
+        };
       });
 
-      console.log(`🎯 [MATCH] Közös találatok: [${[...matchSet].join(', ')}] (${matchSet.size} db)`);
+      const totalUsers = Object.keys(userSwipes).length;
+      console.log(`📈 [MATCH] Szavazatok frissítése - ${totalUsers} user, ${allItemsWithSubtopics.length} item`);
+
+      const voteCounts = {};
+      const ownVotes = votes;
+
+      let matchSet = new Set(allItemsWithSubtopics.map(i => i.name));
+
+      allItemsWithSubtopics.forEach(({name}) => {
+        let yesCount = 0;
+        for (const user in userSwipes) {
+          if (userSwipes[user][name] === "yes") yesCount++;
+          if (userSwipes[user][name] !== "yes") matchSet.delete(name);
+        }
+        voteCounts[name] = yesCount;
+      });
 
       const ownVotesList = document.getElementById("ownVotes");
       ownVotesList.innerHTML = "";
 
-      allItems.forEach(item => {
+      allItemsWithSubtopics.forEach(({name, subtopics}) => {
         const li = document.createElement("li");
         li.className = "list-group-item";
 
         const itemTextSpan = document.createElement('span');
-        itemTextSpan.className = 'text-wrap';
-        itemTextSpan.textContent = item;
+        itemTextSpan.className = 'text-wrap fw-bold d-block';
+        itemTextSpan.textContent = name;
+        itemTextSpan.style.cursor = 'pointer';
 
+        const subUl = document.createElement("ul");
+        subUl.className = "list-group mt-2 ms-4";
+        subUl.style.display = "none";
+
+        if (subtopics.length > 0) {
+          subtopics.forEach(sub => {
+            const subLi = document.createElement("li");
+            subLi.className = "list-group-item py-1 px-2";
+            subLi.textContent = sub;
+            subUl.appendChild(subLi);
+          });
+        } else {
+          subUl.style.display = "block";
+          const emptyLi = document.createElement("li");
+          emptyLi.className = "list-group-item py-1 px-2 fst-italic text-muted";
+          emptyLi.textContent = "(nincs al-téma)";
+          subUl.appendChild(emptyLi);
+        }
+
+        itemTextSpan.onclick = () => {
+          subUl.style.display = subUl.style.display === "none" ? "block" : "none";
+        };
+
+        li.appendChild(itemTextSpan);
+        li.appendChild(subUl);
+
+        // Badge-ek
         const badgesWrapper = document.createElement('div');
-        badgesWrapper.className = 'd-flex align-items-center';
+        badgesWrapper.className = 'd-flex align-items-center mt-1';
 
-        // Hány YES szavazat
         const countBadge = document.createElement('span');
         countBadge.className = 'badge text-bg-secondary me-2';
-        countBadge.innerHTML = `<i class="fas fa-users me-1"></i>${voteCounts[item] || 0}/${totalUsers}`;
+        countBadge.innerHTML = `<i class="fas fa-users me-1"></i>${voteCounts[name] || 0}/${totalUsers}`;
         badgesWrapper.appendChild(countBadge);
 
-        // Saját szavazat badge
-        const ownVote = ownVotes[item];
+        const ownVote = ownVotes[name];
         const voteBadge = document.createElement("span");
-        voteBadge.style.cursor = "pointer"; // Jelezzük, hogy kattintható
+        voteBadge.style.cursor = "pointer";
         if (ownVote === "yes") {
           voteBadge.className = "badge rounded-pill bg-success";
           voteBadge.innerText = "Igen";
@@ -560,18 +604,25 @@ function startMatchListener() {
         }
         badgesWrapper.appendChild(voteBadge);
 
-        li.appendChild(itemTextSpan);
         li.appendChild(badgesWrapper);
 
         ownVotesList.appendChild(li);
 
-        // Szavazat váltás csak a badge-re kattintva
-        addVoteToggleListener(voteBadge, item, ownVote === "yes");
-
-        // Hosszú nyomás törléshez
-        addLongPressDeleteListener(li, item);
+        addVoteToggleListener(voteBadge, name, ownVote === "yes");
+        addLongPressDeleteListener(li, name);
       });
 
+      // Új item hozzáadása gomb a lista végén
+      const addItemLi = document.createElement("li");
+      addItemLi.className = "list-group-item add-item text-center text-primary fw-bold";
+      addItemLi.style.cursor = "pointer";
+      addItemLi.innerHTML = `<i class="fas fa-plus-circle me-1"></i> Új item hozzáadása`;
+      addItemLi.onclick = () => {
+        alert("Itt majd új item input jön!");
+      };
+      ownVotesList.appendChild(addItemLi);
+
+      // Match eredmény doboz
       const matchResultEl = document.getElementById("matchResult");
       if (matchSet.size > 0) {
         matchResultEl.className = 'alert alert-success text-center flex-shrink-0';
