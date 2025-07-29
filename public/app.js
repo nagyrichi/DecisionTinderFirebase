@@ -87,12 +87,18 @@ setTimeout(logDatabaseContents, 1000);
 window.dbDump = logDatabaseContents;
 console.log(`🔧 [DEBUG] Használd: window.dbDump() a teljes adatbázis dump-hoz`);
 
+// EGYSZERI ADMIN FUNKCIÓ - konzolból hívható: window.initDB()
+window.initDB = initializeTopicsWithSubtopics;
+console.log(`🔧 [ADMIN] Használd: window.initDB() az adatbázis inicializáláshoz subtopicokkal`);
+console.log(`⚠️ [ADMIN] FONTOS: Először törölj minden topics dokumentumot a Firestore Console-ban!`);
+
 // --- Globális változók ---
 let topics = {};
 let currentTopic = null;
 let currentItems = [];
 let currentIndex = 0;
-let votes = {};
+let votes = {}; // Főtémák szavazatai
+let subtopicVotes = {}; // Altémák szavazatai: {mainTopic: {subtopic: "yes/no"}}
 let decidedItems = new Set();
 let userId = null;
 let sessionId = "global";
@@ -134,6 +140,116 @@ function updateActivity() {
   lastActivityTimestamp = Date.now();
 }
 
+// --- Subtopic UI segédfüggvény: teljes lista újraszámítása ---
+function recalculateAllMargins() {
+  const allItems = document.querySelectorAll('#ownVotes .main-topic-item');
+  
+  // EGYSZERŰ MEGOLDÁS: töröljük az összes margint!
+  // Az altopicok természetesen elfoglalják a helyüket a DOM-ban,
+  // nem kell külön margint hozzáadni!
+  allItems.forEach(item => {
+    item.style.marginTop = '';
+  });
+  
+  console.log(`📐 [SUBTOPIC] Minden margin törölve - a DOM természetes flow-ja kezeli a pozicionálást`);
+}
+
+// --- Subtopic kezelő funkciók ---
+async function addMainTopicToFirestore(mainTopic) {
+  try {
+    console.log(`➕ [MAIN-TOPIC] Új főtéma hozzáadása Firestore-hoz: "${mainTopic}"`);
+    
+    // Jelöljük, hogy ez a user adta hozzá
+    userAddedItems.add(mainTopic);
+    
+    // Firestore-ban frissítjük a főtémák listáját
+    await db.collection("topics").doc(currentTopic).update({
+      items: firebase.firestore.FieldValue.arrayUnion(mainTopic)
+    });
+    
+    console.log(`✅ [MAIN-TOPIC] "${mainTopic}" sikeresen hozzáadva a Firestore-hoz`);
+  } catch (error) {
+    console.error(`❌ [MAIN-TOPIC] Hiba a főtéma hozzáadásakor`, error);
+    alert(`Hiba történt: ${error.message}`);
+  }
+}
+
+async function addSubtopicToFirestore(mainTopic, subtopic) {
+  try {
+    console.log(`➕ [SUBTOPIC] Új subtopic hozzáadása Firestore-hoz: "${subtopic}" -> "${mainTopic}"`);
+    
+    // Jelöljük, hogy ez a user adta hozzá
+    userAddedItems.add(subtopic);
+    
+    // Firestore-ban frissítjük a subtopicok listáját
+    const updatePath = `subtopics.${mainTopic}`;
+    await db.collection("topics").doc(currentTopic).update({
+      [updatePath]: firebase.firestore.FieldValue.arrayUnion(subtopic)
+    });
+    
+    // Ha a főtéma igen szavazatot kapott, akkor az altéma is automatikusan igen
+    if (votes[mainTopic] === "yes") {
+      if (!subtopicVotes[mainTopic]) subtopicVotes[mainTopic] = {};
+      subtopicVotes[mainTopic][subtopic] = "yes";
+      console.log(`✅ [SUBTOPIC] "${subtopic}" automatikusan elfogadva, mert "${mainTopic}" elfogadva`);
+      
+      // Szavazatok mentése
+      await sendSwipes();
+    }
+    
+    console.log(`✅ [SUBTOPIC] "${subtopic}" sikeresen hozzáadva a Firestore-hoz`);
+  } catch (error) {
+    console.error(`❌ [SUBTOPIC] Hiba a subtopic hozzáadásakor`, error);
+    alert(`Hiba történt: ${error.message}`);
+  }
+}
+
+function addSubtopic(mainTopic, subtopic) {
+  console.log(`➕ [SUBTOPIC] Új subtopic hozzáadása: "${subtopic}" -> "${mainTopic}"`);
+  
+  // Ha a főtéma igen szavazatot kapott, akkor az altéma is automatikusan igen
+  if (votes[mainTopic] === "yes") {
+    if (!subtopicVotes[mainTopic]) subtopicVotes[mainTopic] = {};
+    subtopicVotes[mainTopic][subtopic] = "yes";
+    console.log(`✅ [SUBTOPIC] "${subtopic}" automatikusan elfogadva, mert "${mainTopic}" elfogadva`);
+  }
+}
+
+function toggleSubtopicVote(mainTopic, subtopic) {
+  // Subtopic szavazat váltása
+  if (!subtopicVotes[mainTopic]) subtopicVotes[mainTopic] = {};
+  
+  const currentSubVote = subtopicVotes[mainTopic][subtopic];
+  const newSubVote = currentSubVote === "yes" ? "no" : "yes";
+  
+  subtopicVotes[mainTopic][subtopic] = newSubVote;
+  
+  // Főszavazatban is frissítjük (fallback kompatibilitás)
+  votes[subtopic] = newSubVote;
+  
+  console.log(`🔄 [SUBTOPIC] "${subtopic}" szavazat váltása: ${currentSubVote || 'nincs'} → ${newSubVote}`);
+  
+  // Frissítjük a szavazatokat a szerveren
+  sendSwipes();
+}
+
+function getSubtopicsForItem(item) {
+  // FRISSÍTVE: Firebase-ből olvassuk be a subtopicokat
+  const currentTopicData = topics[currentTopic];
+  console.log(`🔍 [SUBTOPIC-GET] Subtopicok lekérése - item: "${item}", currentTopic: "${currentTopic}"`);
+  console.log(`🔍 [SUBTOPIC-GET] Elérhető subtopicok:`, currentTopicData?.subtopics);
+  
+  if (currentTopicData && currentTopicData.subtopics && currentTopicData.subtopics[item]) {
+    const result = currentTopicData.subtopics[item];
+    console.log(`✅ [SUBTOPIC-GET] "${item}" subtopicjai: [${result.join(', ')}]`);
+    return result;
+  }
+  
+  // Fallback: ha nincs subtopic adat, üres tömb
+  console.log(`⚠️ [SUBTOPIC-GET] "${item}" - nincs subtopic adat`);
+  return [];
+}
+
 // --- Rejtett admin funkció (5x gyors kattintás az "Eredmények" címre) ---
 async function secretAdminCleanup() {
   try {
@@ -172,6 +288,141 @@ async function secretAdminCleanup() {
     
   } catch (error) {
     console.error(`❌ [SECRET] Hiba az admin cleanup-ban`, error);
+    alert(`❌ Hiba történt: ${error.message}`);
+  }
+}
+
+// --- EGYSZERI DB INICIALIZÁLÓ FUNKCIÓ (CSAK FEJLESZTÉSHEZ!) ---
+async function initializeTopicsWithSubtopics() {
+  try {
+    console.log(`🔧 [INIT-DB] ADATBÁZIS INICIALIZÁLÁS MEGKEZDÉSE`);
+    
+    // Teljes témák adatstruktúra subtopicokkal - EREDETI TÉMÁK EMOJIKKAL
+    const topicsWithSubtopics = {
+      "🍽️ Mit együnk?": {
+        items: [
+          "🍕 Pizza",
+          "🍣 Sushi", 
+          "🍔 Hamburger",
+          "🍜 Pho leves",
+          "🍝 Tészta",
+          "🥙 Gyros",
+          "🍲 Ramen"
+        ],
+        subtopics: {
+          "🍕 Pizza": ["Margherita", "Hawaii", "Pepperoni", "Quattro Stagioni"],
+          "🍣 Sushi": ["Maki", "Nigiri", "Sashimi", "Temaki"],
+          "🍔 Hamburger": ["KFC", "Burger King", "McDonald's", "Subway"],
+          "🍜 Pho leves": ["Marhahúsos", "Csirkehúsos", "Vegán", "Garnélás"],
+          "🍝 Tészta": ["Carbonara", "Pesto", "Bolognese", "Amatriciana"],
+          "🥙 Gyros": ["Csirke", "Marha", "Vegán", "Kevert"],
+          "🍲 Ramen": ["Tonkotsu", "Shoyu", "Miso", "Shio"]
+        }
+      },
+      "🎬 Mit nézzünk?": {
+        items: [
+          "🎬 Akció",
+          "😂 Vígjáték", 
+          "💕 Romantikus",
+          "👻 Horror",
+          "🚀 Sci-fi",
+          "🎭 Dráma"
+        ],
+        subtopics: {
+          "🎬 Akció": ["Marvel", "DC", "Halálos iramban", "Mission Impossible"],
+          "😂 Vígjáték": ["Komédia", "Romantikus vígjáték", "Szatíra", "Paródia"],
+          "💕 Romantikus": ["Szerelmes", "Drámai", "Időutazásos", "Karácsonyi"],
+          "👻 Horror": ["Pszichológiai", "Slasher", "Supernatural", "Zombie"],
+          "🚀 Sci-fi": ["Űrutazás", "Időutazás", "Robotok", "Dystopia"],
+          "🎭 Dráma": ["Történelmi", "Bírósági", "Családi", "Háborús"]
+        }
+      },
+      "✈️ Hová menjünk?": {
+        items: [
+          "🏖️ Tengerpart",
+          "🏔️ Hegyek",
+          "🏙️ Nagyváros",
+          "🌳 Természet",
+          "🏛️ Történelmi helyek",
+          "🎡 Szórakozópark"
+        ],
+        subtopics: {
+          "🏖️ Tengerpart": ["Mediterrán", "Trópusi", "Északi-tenger", "Fekete-tenger"],
+          "🏔️ Hegyek": ["Alpok", "Tátra", "Himalája", "Sziklás-hegység"],
+          "🏙️ Nagyváros": ["Európai főváros", "Amerikai nagyváros", "Ázsiai metropolisz", "Ausztrál város"],
+          "🌳 Természet": ["Nemzeti park", "Esőerdő", "Szavanna", "Sivatag"],
+          "🏛️ Történelmi helyek": ["Antik romok", "Várak", "Múzeumok", "Vallási helyek"],
+          "🎡 Szórakozópark": ["Disneyland", "Universal", "Európai park", "Vízipark"]
+        }
+      },
+      "🎵 Mit hallgassunk?": {
+        items: [
+          "🎸 Rock",
+          "🎤 Pop",
+          "🎧 Elektronikus",
+          "🎺 Jazz",
+          "🎻 Klasszikus",
+          "🥁 Hip-hop"
+        ],
+        subtopics: {
+          "🎸 Rock": ["Alternatív", "Metal", "Punk", "Indie"],
+          "🎤 Pop": ["Mainstream", "K-pop", "Retro", "Indie pop"],
+          "🎧 Elektronikus": ["House", "Techno", "Dubstep", "Ambient"],
+          "🎺 Jazz": ["Smooth", "Bebop", "Fusion", "Swing"],
+          "🎻 Klasszikus": ["Barokk", "Romantikus", "Modern", "Opera"],
+          "🥁 Hip-hop": ["Old school", "Trap", "Conscious", "Drill"]
+        }
+      },
+      "🎮 Mit játsszunk?": {
+        items: [
+          "🎯 Akció",
+          "🧩 Puzzle",
+          "🏎️ Verseny",
+          "⚔️ RPG",
+          "🏗️ Építés",
+          "⚽ Sport"
+        ],
+        subtopics: {
+          "🎯 Akció": ["FPS", "Hack & Slash", "Battle Royale", "Platformer"],
+          "🧩 Puzzle": ["Logic", "Match-3", "Escape room", "Brain training"],
+          "🏎️ Verseny": ["Formula", "Rally", "Arcade", "Szimulátor"],
+          "⚔️ RPG": ["Fantasy", "Sci-fi", "JRPG", "Action RPG"],
+          "🏗️ Építés": ["City builder", "Sandbox", "Survival", "Management"],
+          "⚽ Sport": ["Futball", "Kosárlabda", "Tenisz", "Extrém sport"]
+        }
+      }
+    };
+    
+    // Minden témát feltöltünk a Firestore-ba
+    const batch = db.batch();
+    
+    for (const [topicName, topicData] of Object.entries(topicsWithSubtopics)) {
+      const topicRef = db.collection("topics").doc(topicName);
+      batch.set(topicRef, {
+        items: topicData.items,
+        subtopics: topicData.subtopics,
+        created_at: firebase.firestore.FieldValue.serverTimestamp(),
+        version: "2.0_with_subtopics"
+      });
+      console.log(`📚 [INIT-DB] "${topicName}" téma előkészítve - ${topicData.items.length} fő elem, ${Object.keys(topicData.subtopics).length} subtopic csoport`);
+    }
+    
+    // Batch végrehajtás
+    await batch.commit();
+    
+    console.log(`✅ [INIT-DB] ${Object.keys(topicsWithSubtopics).length} téma sikeresen feltöltve subtopicokkal!`);
+    
+    // Visszajelzés
+    alert(`🎉 DB INICIALIZÁLÁS KÉSZ!\n\nLétrehozva:\n- ${Object.keys(topicsWithSubtopics).length} téma\n- Subtopicok minden témához\n\nOldal újratöltése...`);
+    
+    // Adatbázis dump
+    setTimeout(() => logDatabaseContents(), 1000);
+    
+    // Oldal újratöltése
+    setTimeout(() => window.location.reload(), 2000);
+    
+  } catch (error) {
+    console.error(`❌ [INIT-DB] Hiba az adatbázis inicializálásban`, error);
     alert(`❌ Hiba történt: ${error.message}`);
   }
 }
@@ -318,9 +569,17 @@ async function loadTopics() {
     topics = {};
     
     snapshot.forEach(doc => {
-      const items = doc.data().items || [];
-      topics[doc.id] = items;
-      console.log(`📖 [TOPICS] "${doc.id}" betöltve - ${items.length} elem`);
+      const data = doc.data();
+      const items = data.items || [];
+      const subtopics = data.subtopics || {};
+      
+      // FRISSÍTVE: subtopicokat is tároljuk
+      topics[doc.id] = {
+        items: items,
+        subtopics: subtopics
+      };
+      
+      console.log(`📖 [TOPICS] "${doc.id}" betöltve - ${items.length} elem, ${Object.keys(subtopics).length} subtopic csoport`);
     });
     
     const topicSelect = document.getElementById("topic");
@@ -426,13 +685,23 @@ function startTopicListener(topic) {
   const topicDocRef = db.collection("topics").doc(topic);
   unsubscribeTopicListener = topicDocRef.onSnapshot(doc => {
     if (!doc.exists) return;
-    const newItems = doc.data().items || [];
-    const oldItems = topics[topic] || [];
+    const docData = doc.data();
+    const newItems = docData.items || [];
+    const newSubtopics = docData.subtopics || {};
+    // FRISSÍTVE: topics objektum új struktúrája miatt .items kell
+    const oldItems = topics[topic]?.items || [];
+    const oldSubtopics = topics[topic]?.subtopics || {};
+    
+    console.log(`🔄 [TOPIC-LISTENER] Változások detektálva - "${topic}"`);
+    console.log(`📋 [TOPIC-LISTENER] Régi items: [${oldItems.join(', ')}]`);
+    console.log(`📋 [TOPIC-LISTENER] Új items: [${newItems.join(', ')}]`);
+    console.log(`🎯 [TOPIC-LISTENER] Régi subtopics:`, oldSubtopics);
+    console.log(`🎯 [TOPIC-LISTENER] Új subtopics:`, newSubtopics);
     
     // Törölt elemek detektálása
     const deletedItems = oldItems.filter(item => !newItems.includes(item));
     if (deletedItems.length > 0) {
-      console.log(`🗑️ [TOPIC] Törött elemek detektálva: [${deletedItems.join(', ')}]`);
+      console.log(`🗑️ [TOPIC] Törölt elemek detektálva: [${deletedItems.join(', ')}]`);
       
       // Törölt elemek eltávolítása a lokális adatokból
       deletedItems.forEach(item => {
@@ -451,7 +720,17 @@ function startTopicListener(topic) {
       }
     }
     
-    topics[topic] = newItems;
+    // FRISSÍTVE: teljes topic objektum frissítése
+    const prevTopics = JSON.stringify(topics[topic]);
+    topics[topic] = {
+      items: newItems,
+      subtopics: newSubtopics
+    };
+    const newTopics = JSON.stringify(topics[topic]);
+    
+    if (prevTopics !== newTopics) {
+      console.log(`✅ [TOPIC-LISTENER] Topics objektum frissítve: "${topic}"`);
+    }
 
     newItems.forEach(item => {
       // Csak akkor mutassunk modal-t, ha a MATCH screen-en vagyunk és új elem érkezett
@@ -498,30 +777,22 @@ function startMatchListener() {
       if (!document.getElementById('screen-match').classList.contains('active-screen')) return;
 
       const userSwipes = {};
+      const userSubtopicSwipes = {};
       snapshot.forEach(doc => {
         const data = doc.data();
         userSwipes[data.user] = data.swipes || {};
+        userSubtopicSwipes[data.user] = data.subtopicSwipes || {};
       });
 
-      const originalItems = topics[currentTopic] || [];
+      // FRISSÍTVE: topics objektum új struktúrája miatt .items kell
+      const originalItems = topics[currentTopic]?.items || [];
       console.log("📢 originalItems:", originalItems);
 
-      const subtopicsSamples = {
-        "Pizza": ["Margherita", "Hawaii", "Pepperoni"],
-        "Sushi": ["Maki", "Nigiri", "Sashimi"],
-        "Hamburger": ["Classic", "Cheese", "Bacon"],
-        "Pho leves": ["Marhahúsos", "Csirkehúsos", "Vegán"],
-        "Tészta": ["Carbonara", "Pesto", "Bolognese"],
-        "Gyros": ["Csirke", "Marha", "Vegán"],
-        "Ramen": ["Tonkotsu", "Shoyu", "Miso"]
-      };
-
-      // Subtopicokat minden fő itemhez megadunk (ha nincs, üres lista)
+      // Subtopicokat minden fő itemhez megadunk
       const allItemsWithSubtopics = originalItems.map(item => {
-        let subs = subtopicsSamples[item] || [];
         return {
           name: item,
-          subtopics: subs
+          subtopics: getSubtopicsForItem(item)
         };
       });
 
@@ -529,17 +800,36 @@ function startMatchListener() {
       console.log(`📈 [MATCH] Szavazatok frissítése - ${totalUsers} user, ${allItemsWithSubtopics.length} item`);
 
       const voteCounts = {};
+      const subtopicVoteCounts = {};
       const ownVotes = votes;
 
+      // Főtémák match ellenőrzése
       let matchSet = new Set(allItemsWithSubtopics.map(i => i.name));
 
-      allItemsWithSubtopics.forEach(({name}) => {
+      allItemsWithSubtopics.forEach(({name, subtopics}) => {
         let yesCount = 0;
         for (const user in userSwipes) {
           if (userSwipes[user][name] === "yes") yesCount++;
           if (userSwipes[user][name] !== "yes") matchSet.delete(name);
         }
         voteCounts[name] = yesCount;
+        
+        // Subtopicok szavazatszámlálása
+        if (subtopics.length > 0) {
+          subtopicVoteCounts[name] = {};
+          subtopics.forEach(subtopic => {
+            let subYesCount = 0;
+            for (const user in userSubtopicSwipes) {
+              if (userSubtopicSwipes[user][name] && userSubtopicSwipes[user][name][subtopic] === "yes") {
+                subYesCount++;
+              } else if (userSwipes[user][subtopic] === "yes") {
+                // Fallback: ha a főszavazásokban van
+                subYesCount++;
+              }
+            }
+            subtopicVoteCounts[name][subtopic] = subYesCount;
+          });
+        }
       });
 
       const ownVotesList = document.getElementById("ownVotes");
@@ -547,49 +837,40 @@ function startMatchListener() {
 
       allItemsWithSubtopics.forEach(({name, subtopics}) => {
         const li = document.createElement("li");
-        li.className = "list-group-item";
+        li.className = "list-group-item main-topic-item";
+        
+        // MINDEN TOPIC BEZÁRVA KEZDŐDIK - a user manuálisan nyitja ki ha akarja
+        const ownVote = ownVotes[name];
+        const shouldBeExpanded = false; // Mindig bezárva kezdünk
+        // if (shouldBeExpanded) {
+        //   li.classList.add('expanded');
+        // }
+
+        const itemContainer = document.createElement('div');
+        itemContainer.className = 'd-flex justify-content-between align-items-center';
 
         const itemTextSpan = document.createElement('span');
-        itemTextSpan.className = 'text-wrap fw-bold d-block';
+        itemTextSpan.className = 'text-wrap fw-bold';
         itemTextSpan.textContent = name;
-        itemTextSpan.style.cursor = 'pointer';
+        itemTextSpan.style.cursor = subtopics.length > 0 ? 'pointer' : 'default';
 
-        const subUl = document.createElement("ul");
-        subUl.className = "list-group mt-2 ms-4";
-        subUl.style.display = "none";
-
+        // Expand/collapse ikon hozzáadása, ha vannak subtopicok
         if (subtopics.length > 0) {
-          subtopics.forEach(sub => {
-            const subLi = document.createElement("li");
-            subLi.className = "list-group-item py-1 px-2";
-            subLi.textContent = sub;
-            subUl.appendChild(subLi);
-          });
-        } else {
-          subUl.style.display = "block";
-          const emptyLi = document.createElement("li");
-          emptyLi.className = "list-group-item py-1 px-2 fst-italic text-muted";
-          emptyLi.textContent = "(nincs al-téma)";
-          subUl.appendChild(emptyLi);
+          const expandIcon = document.createElement('i');
+          expandIcon.className = 'fas fa-chevron-down me-2 text-muted';
+          expandIcon.style.fontSize = '0.8rem';
+          itemTextSpan.prepend(expandIcon);
         }
 
-        itemTextSpan.onclick = () => {
-          subUl.style.display = subUl.style.display === "none" ? "block" : "none";
-        };
-
-        li.appendChild(itemTextSpan);
-        li.appendChild(subUl);
-
-        // Badge-ek
+        // Badge-ek wrapper
         const badgesWrapper = document.createElement('div');
-        badgesWrapper.className = 'd-flex align-items-center mt-1';
+        badgesWrapper.className = 'd-flex align-items-center gap-2';
 
         const countBadge = document.createElement('span');
-        countBadge.className = 'badge text-bg-secondary me-2';
+        countBadge.className = 'badge text-bg-secondary';
         countBadge.innerHTML = `<i class="fas fa-users me-1"></i>${voteCounts[name] || 0}/${totalUsers}`;
         badgesWrapper.appendChild(countBadge);
 
-        const ownVote = ownVotes[name];
         const voteBadge = document.createElement("span");
         voteBadge.style.cursor = "pointer";
         if (ownVote === "yes") {
@@ -604,29 +885,202 @@ function startMatchListener() {
         }
         badgesWrapper.appendChild(voteBadge);
 
-        li.appendChild(badgesWrapper);
+        itemContainer.appendChild(itemTextSpan);
+        itemContainer.appendChild(badgesWrapper);
+        li.appendChild(itemContainer);
 
+        // Subtopicok lista
+        const subUl = document.createElement("ul");
+        subUl.className = "list-group mt-2 ms-3 subtopics-list";
+        
+        // MINDEN ALAPÉRTELMEZETTEN REJTETT
+        subUl.style.display = "none";
+        
+        // Ikon frissítése az állapot szerint - mindig lefelé néző nyíl kezdetben
+        if (subtopics.length > 0) {
+          const expandIcon = itemTextSpan.querySelector('i');
+          if (expandIcon) {
+            expandIcon.className = 'fas fa-chevron-down me-2 text-muted';
+          }
+        }
+
+        if (subtopics.length > 0) {
+          subtopics.forEach(sub => {
+            const subLi = document.createElement("li");
+            subLi.className = "list-group-item subtopic-item d-flex justify-content-between align-items-center py-2";
+            
+            const subText = document.createElement('span');
+            subText.textContent = sub;
+            subText.className = 'text-wrap';
+            
+            // Subtopic szavazatok container (count + vote badge)
+            const subBadgesWrapper = document.createElement('div');
+            subBadgesWrapper.className = 'd-flex align-items-center gap-2';
+            
+            // Subtopic szavazatszám badge
+            const subCountBadge = document.createElement('span');
+            subCountBadge.className = 'badge text-bg-secondary';
+            const subCount = subtopicVoteCounts[name] ? (subtopicVoteCounts[name][sub] || 0) : 0;
+            subCountBadge.innerHTML = `<i class="fas fa-users me-1"></i>${subCount}/${totalUsers}`;
+            subBadgesWrapper.appendChild(subCountBadge);
+            
+            // Subtopic szavazat badge
+            const subVote = subtopicVotes[name] ? subtopicVotes[name][sub] : (votes[sub] || null);
+            const subVoteBadge = document.createElement("span");
+            subVoteBadge.style.cursor = "pointer";
+            subVoteBadge.className = "badge rounded-pill";
+            
+            if (subVote === "yes") {
+              subVoteBadge.classList.add("bg-success");
+              subVoteBadge.innerText = "✓";
+            } else if (subVote === "no") {
+              subVoteBadge.classList.add("bg-danger");
+              subVoteBadge.innerText = "✗";
+            } else {
+              subVoteBadge.classList.add("bg-secondary");
+              subVoteBadge.innerText = "?";
+            }
+            
+            // Subtopic szavazat váltás
+            subVoteBadge.addEventListener('click', (event) => {
+              event.stopPropagation(); // Megakadályozzuk az esemény buborékolását
+              console.log(`🔄 [SUBTOPIC-CLICK] "${sub}" szavazat váltás`);
+              toggleSubtopicVote(name, sub);
+            });
+            
+            subBadgesWrapper.appendChild(subVoteBadge);
+            
+            subLi.appendChild(subText);
+            subLi.appendChild(subBadgesWrapper);
+            
+            // Megakadályozzuk az esemény buborékolását a subtopic elemen
+            subLi.addEventListener('click', (event) => {
+              event.stopPropagation();
+            });
+            
+            // Long press törlés hozzáadása subtopicokhoz is
+            addLongPressDeleteListener(subLi, sub);
+            
+            subUl.appendChild(subLi);
+          });
+          
+          // "Új altopic hozzáadása" gomb
+          const addSubLi = document.createElement("li");
+          addSubLi.className = "list-group-item add-subtopic text-center text-primary py-2";
+          addSubLi.style.cursor = "pointer";
+          addSubLi.innerHTML = `<i class="fas fa-plus me-1"></i> Új altopic`;
+          addSubLi.onclick = async (event) => {
+            event.stopPropagation(); // Megakadályozzuk az esemény buborékolását
+            const newSubtopic = prompt(`Új altopic hozzáadása "${name}"-hoz:`);
+            if (newSubtopic && newSubtopic.trim()) {
+              await addSubtopicToFirestore(name, newSubtopic.trim());
+            }
+          };
+          subUl.appendChild(addSubLi);
+        } else {
+          // Ha nincs subtopic, üres állapot
+          const emptyLi = document.createElement("li");
+          emptyLi.className = "list-group-item text-center text-muted py-2 fst-italic";
+          emptyLi.textContent = "Nincs altopic";
+          
+          // Megakadályozzuk az esemény buborékolását az üres elemen is
+          emptyLi.addEventListener('click', (event) => {
+            event.stopPropagation();
+          });
+          
+          subUl.appendChild(emptyLi);
+        }
+
+        // Expand/collapse funkcionalitás
+        if (subtopics.length > 0) {
+          itemTextSpan.onclick = () => {
+            const isVisible = subUl.style.display !== "none";
+            
+            if (isVisible) {
+              // Bezárás
+              subUl.style.display = "none";
+              li.classList.remove('expanded');
+            } else {
+              // Kinyitás
+              subUl.style.display = "block";
+              li.classList.add('expanded');
+            }
+            
+            // Teljes lista újraszámítása minden expand/collapse után
+            setTimeout(() => recalculateAllMargins(), 50);
+            
+            const expandIcon = itemTextSpan.querySelector('i');
+            if (expandIcon) {
+              expandIcon.className = isVisible ? 'fas fa-chevron-down me-2 text-muted' : 'fas fa-chevron-up me-2 text-muted';
+            }
+          };
+        }
+
+        li.appendChild(subUl);
         ownVotesList.appendChild(li);
 
+        // Szavazat váltás a főtopicra
         addVoteToggleListener(voteBadge, name, ownVote === "yes");
         addLongPressDeleteListener(li, name);
       });
-
-      // Új item hozzáadása gomb a lista végén
-      const addItemLi = document.createElement("li");
-      addItemLi.className = "list-group-item add-item text-center text-primary fw-bold";
-      addItemLi.style.cursor = "pointer";
-      addItemLi.innerHTML = `<i class="fas fa-plus-circle me-1"></i> Új item hozzáadása`;
-      addItemLi.onclick = () => {
-        alert("Itt majd új item input jön!");
+      
+      // ÚJ FŐ TOPIC HOZZÁADÓ GOMB a lista végére - SUBTOPIC STÍLUSSAL
+      const addTopicLi = document.createElement("li");
+      addTopicLi.className = "list-group-item add-item text-center py-2";
+      addTopicLi.style.cursor = "pointer";
+      addTopicLi.innerHTML = `<i class="fas fa-plus me-1"></i> Új fő topic`;
+      addTopicLi.onclick = async () => {
+        const newTopic = prompt("Új fő topic hozzáadása:");
+        if (newTopic && newTopic.trim()) {
+          await addMainTopicToFirestore(newTopic.trim());
+        }
       };
-      ownVotesList.appendChild(addItemLi);
+      ownVotesList.appendChild(addTopicLi);
+      
+      // Mivel minden topic bezárva kezdődik, nincs szükség margin számításra kezdetben
+      console.log(`✅ [MATCH] ${allItemsWithSubtopics.length} topic megjelenítve - minden bezárva`);
 
-      // Match eredmény doboz
+      // Match eredmény doboz - FRISSÍTETT LOGIKA subtopicokkal
       const matchResultEl = document.getElementById("matchResult");
-      if (matchSet.size > 0) {
+      
+      // Közös főtémák
+      const commonMainTopics = [...matchSet];
+      
+      // Közös subtopicok - csak az elfogadott főtémák subtopicjai között
+      let commonSubtopics = [];
+      commonMainTopics.forEach(mainTopic => {
+        const subtopics = getSubtopicsForItem(mainTopic);
+        subtopics.forEach(subtopic => {
+          let allUsersVotedYes = true;
+          for (const user in userSubtopicSwipes) {
+            const userSubVote = userSubtopicSwipes[user][mainTopic] && userSubtopicSwipes[user][mainTopic][subtopic];
+            const userMainVote = userSwipes[user][subtopic]; // Fallback
+            
+            if (userSubVote !== "yes" && userMainVote !== "yes") {
+              allUsersVotedYes = false;
+              break;
+            }
+          }
+          
+          if (allUsersVotedYes && totalUsers > 0) {
+            commonSubtopics.push(`${mainTopic} → ${subtopic}`);
+          }
+        });
+      });
+      
+      if (commonMainTopics.length > 0 || commonSubtopics.length > 0) {
         matchResultEl.className = 'alert alert-success text-center flex-shrink-0';
-        matchResultEl.innerHTML = `<i class="fas fa-check-circle"></i> Közös választás: <strong>${[...matchSet].join(", ")}</strong>`;
+        let resultText = `<i class="fas fa-check-circle"></i> Közös választás:<br>`;
+        
+        if (commonMainTopics.length > 0) {
+          resultText += `<strong>Főtémák:</strong> ${commonMainTopics.join(", ")}<br>`;
+        }
+        
+        if (commonSubtopics.length > 0) {
+          resultText += `<strong>Altémák:</strong> ${commonSubtopics.join(", ")}`;
+        }
+        
+        matchResultEl.innerHTML = resultText;
       } else {
         matchResultEl.className = 'alert alert-warning text-center flex-shrink-0';
         matchResultEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Még nincs közös találat`;
@@ -653,7 +1107,43 @@ function handleSwipe(yes) {
     if (yes && !accepted.includes(item)) {
       accepted.push(item);
       console.log(`✅ [SWIPE] "${item}" hozzáadva az elfogadott listához`);
+      
+      // ÚJ: Ha IGEN szavazat, és van subtopic, akkor beszúrjuk őket a listába
+      const subtopics = getSubtopicsForItem(item);
+      console.log(`🔍 [SWIPE-DEBUG] "${item}" ellenőrzése - currentTopic: "${currentTopic}"`);
+      console.log(`🔍 [SWIPE-DEBUG] Elérhető topics objektum:`, topics);
+      console.log(`🔍 [SWIPE-DEBUG] Aktuális topic adatok:`, topics[currentTopic]);
+      
+      if (subtopics.length > 0) {
+        console.log(`🔀 [SUBTOPIC] "${item}" igen szavazat - ${subtopics.length} subtopic beszúrása`);
+        
+        // Keverjük meg a subtopicokat
+        const shuffledSubtopics = [...subtopics];
+        shuffle(shuffledSubtopics);
+        
+        // Beszúrjuk a subtopicokat a currentIndex+1 pozíciótól
+        currentItems.splice(currentIndex + 1, 0, ...shuffledSubtopics);
+        
+        console.log(`📋 [SUBTOPIC] Subtopicok beszúrva: [${shuffledSubtopics.join(', ')}]`);
+        console.log(`📊 [SUBTOPIC] Új lista hossz: ${currentItems.length}`);
+        console.log(`📄 [SUBTOPIC] Teljes currentItems lista:`, currentItems);
+      } else {
+        console.log(`⚠️ [SUBTOPIC] "${item}" - nincs subtopic, beszúrás kihagyva`);
+      }
+    } else if (!yes) {
+      // ÚJ: Ha NEM szavazat, minden subtopicot automatikusan "no"-ra állítunk
+      const subtopics = getSubtopicsForItem(item);
+      if (subtopics.length > 0) {
+        console.log(`❌ [SUBTOPIC] "${item}" nem szavazat - ${subtopics.length} subtopic automatikus elutasítása`);
+        
+        subtopics.forEach(subtopic => {
+          votes[subtopic] = "no";
+        });
+        
+        console.log(`📋 [SUBTOPIC] Subtopicok elutasítva: [${subtopics.join(', ')}]`);
+      }
     }
+    
     currentIndex++;
     if (currentIndex >= currentItems.length) {
       console.log(`📤 [SWIPE] Szavazás befejezve, eredmények küldése - elfogadott: [${accepted.join(', ')}]`);
@@ -672,8 +1162,29 @@ function startTopic(topic) {
   console.log(`🏁 [SWIPE] Téma indítása - topic: ${topic}, userId: ${userId}`);
   
   currentTopic = topic;
-  currentItems = [...topics[topic]];
+  // MÓDOSÍTVA: először csak a főtémákat töltjük be
+  const mainTopics = topics[topic]?.items || [];
+  currentItems = [...mainTopics];
   shuffle(currentItems);
+  
+  // KIEGÉSZÍTVE: ha már voltak szavazatok, rekonstruáljuk a teljes listát
+  const alreadyAcceptedMainTopics = mainTopics.filter(item => votes[item] === "yes");
+  console.log(`🔄 [SWIPE] Elfogadott főtémák újratöltésnél: [${alreadyAcceptedMainTopics.join(', ')}]`);
+  
+  // Beszúrjuk az elfogadott főtémák subtopicjait
+  alreadyAcceptedMainTopics.forEach(mainTopic => {
+    const subtopics = getSubtopicsForItem(mainTopic);
+    if (subtopics.length > 0) {
+      console.log(`🔀 [SWIPE] "${mainTopic}" subtopicjainak beszúrása: [${subtopics.join(', ')}]`);
+      
+      // Megkeressük a főtéma pozícióját a listában
+      const mainTopicIndex = currentItems.indexOf(mainTopic);
+      if (mainTopicIndex !== -1) {
+        // Beszúrjuk a subtopicokat a főtéma után
+        currentItems.splice(mainTopicIndex + 1, 0, ...subtopics);
+      }
+    }
+  });
   
   // Keressük meg, hogy hol tartunk a szavazásban
   currentIndex = 0;
@@ -691,13 +1202,15 @@ function startTopic(topic) {
   
   // decidedItems újraépítése - MINDEN létező elemet hozzáadunk
   decidedItems.clear();
-  currentItems.forEach(item => {
+  // Csak a főtémákat adjuk hozzá decided-hez - a subtopicok dinamikusan kerülnek be
+  mainTopics.forEach(item => {
     decidedItems.add(item);
   });
   
-  console.log(`🔀 [SWIPE] ${currentItems.length} elem keverve - jelenlegi pozíció: ${currentIndex}/${currentItems.length}`);
+  console.log(`🔀 [SWIPE] ${currentItems.length} elem (főtémák + subtopicok) - jelenlegi pozíció: ${currentIndex}/${currentItems.length}`);
   console.log(`📊 [SWIPE] Korábbi szavazatok: ${Object.keys(votes).length}, elfogadva: [${accepted.join(', ')}]`);
-  console.log(`🎯 [SWIPE] Decided items: [${[...decidedItems].join(', ')}]`);
+  console.log(`🎯 [SWIPE] Decided főtémák: [${[...decidedItems].join(', ')}]`);
+  console.log(`📋 [SWIPE] Aktuális lista: [${currentItems.join(', ')}]`);
   
   document.querySelector('#screen-swipe h2').textContent = currentTopic;
   showNextItem();
@@ -732,12 +1245,14 @@ async function sendSwipes() {
     const yesCount = Object.values(votes).filter(v => v === "yes").length;
     
     console.log(`📤 [VOTES] Szavazatok küldése - összesen: ${voteCount}, igen: ${yesCount}, nem: ${voteCount - yesCount}`);
+    console.log(`📤 [SUBTOPIC-VOTES] Subtopic szavazatok:`, subtopicVotes);
     
     await db.collection("swipes").doc(`${sessionId}_${userId}`).set({
       user: userId,
       session: sessionId,
       topic: currentTopic,
       swipes: votes,
+      subtopicSwipes: subtopicVotes, // Új mező a subtopic szavazatoknak
       timestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
     
@@ -773,7 +1288,8 @@ function addLongPressDeleteListener(listItem, itemName) {
   let pressTimer = null;
   let startTime = 0;
   
-  const startPress = () => {
+  const startPress = (event) => {
+    event.stopPropagation(); // Megakadályozzuk az esemény buborékolását
     startTime = Date.now();
     pressTimer = setTimeout(() => {
       // 800ms után megkérdezzük
@@ -786,7 +1302,8 @@ function addLongPressDeleteListener(listItem, itemName) {
     }, 800); // 800ms hosszú nyomás
   };
   
-  const cancelPress = () => {
+  const cancelPress = (event) => {
+    if (event) event.stopPropagation(); // Megakadályozzuk az esemény buborékolását
     if (pressTimer) {
       clearTimeout(pressTimer);
       pressTimer = null;
@@ -799,7 +1316,7 @@ function addLongPressDeleteListener(listItem, itemName) {
   listItem.addEventListener('mouseleave', cancelPress);
   
   // Touch események
-  listItem.addEventListener('touchstart', startPress, { passive: true });
+  listItem.addEventListener('touchstart', startPress, { passive: false }); // passive: false hogy stopPropagation működjön
   listItem.addEventListener('touchend', cancelPress);
   listItem.addEventListener('touchcancel', cancelPress);
   listItem.addEventListener('touchmove', cancelPress); // Ha mozog, törljük
@@ -808,34 +1325,87 @@ function addLongPressDeleteListener(listItem, itemName) {
 // --- Egyszerű törlés funkció ---
 async function deleteItemFromFirestore(item) {
   try {
-    console.log(`�️ [DELETE] Elem törlése megkezdve: "${item}"`);
+    console.log(`🗑️ [DELETE] Elem törlése megkezdve: "${item}"`);
+
+    // Ellenőrizzük, hogy főtéma vagy subtopic-e
+    let isMainTopic = false;
+    let isSubtopic = false;
+    let parentMainTopic = null;
+    
+    // FRISSÍTVE: topics objektum új struktúrája miatt .items kell
+    const mainTopics = topics[currentTopic]?.items || [];
+    
+    if (mainTopics.includes(item)) {
+      isMainTopic = true;
+      console.log(`📋 [DELETE] "${item}" főtéma törlése`);
+    } else {
+      // Keressük meg, hogy melyik főtéma subtopicja
+      for (const mainTopic of mainTopics) {
+        const subtopics = getSubtopicsForItem(mainTopic);
+        if (subtopics.includes(item)) {
+          isSubtopic = true;
+          parentMainTopic = mainTopic;
+          console.log(`📋 [DELETE] "${item}" subtopic törlése (szülő: "${parentMainTopic}")`);
+          break;
+        }
+      }
+    }
 
     // Lokális törlés
     if (votes[item]) {
       delete votes[item];
       console.log(`🧹 [DELETE] Lokális vote törölve: "${item}"`);
     }
+    
+    // Subtopic votes tisztítása
+    if (isMainTopic && subtopicVotes[item]) {
+      delete subtopicVotes[item];
+      console.log(`🧹 [DELETE] Subtopic votes törölve: "${item}"`);
+    } else if (isSubtopic && subtopicVotes[parentMainTopic] && subtopicVotes[parentMainTopic][item]) {
+      delete subtopicVotes[parentMainTopic][item];
+      console.log(`🧹 [DELETE] Subtopic vote törölve: "${parentMainTopic}" -> "${item}"`);
+    }
+    
     accepted = accepted.filter(i => i !== item);
     decidedItems.delete(item);
-    userAddedItems.delete(item); // User added items-ból is töröljük
+    userAddedItems.delete(item);
     
     console.log(`📝 [DELETE] Lokális adatok frissítve - elfogadottak: [${accepted.join(', ')}]`);
 
-    // ELSŐ: Firestore topics-ból törlés - EZ TRIGGERELI A TOPIC LISTENER-T MINDENKINEK!
-    await db.collection("topics").doc(currentTopic).update({
-      items: firebase.firestore.FieldValue.arrayRemove(item)
-    });
-    console.log(`🔥 [DELETE] Firestore topics frissítve - realtime listener aktiválva`);
+    // Firestore törlés
+    if (isMainTopic) {
+      // Főtéma törlése a topics-ból
+      await db.collection("topics").doc(currentTopic).update({
+        items: firebase.firestore.FieldValue.arrayRemove(item),
+        [`subtopics.${item}`]: firebase.firestore.FieldValue.delete()
+      });
+      console.log(`🔥 [DELETE] Főtéma és subtopicjai törölve a Firestore-ból: "${item}"`);
+    } else if (isSubtopic && parentMainTopic) {
+      // Subtopic törlése
+      await db.collection("topics").doc(currentTopic).update({
+        [`subtopics.${parentMainTopic}`]: firebase.firestore.FieldValue.arrayRemove(item)
+      });
+      console.log(`🔥 [DELETE] Subtopic törölve a Firestore-ból: "${parentMainTopic}" -> "${item}"`);
+    }
     
     // Adatbázis dump törlés után
     setTimeout(() => logDatabaseContents(), 500);
 
-    // MÁSODIK: Swipes frissítése - ezzel minden user-nél frissül a vote lista
+    // Swipes frissítése
     await sendSwipes();
 
-    // Lokális topics objektum frissítése is
+    // Lokális topics objektum frissítése
     if (topics[currentTopic]) {
-      topics[currentTopic] = topics[currentTopic].filter(i => i !== item);
+      if (isMainTopic) {
+        topics[currentTopic].items = topics[currentTopic].items.filter(i => i !== item);
+        if (topics[currentTopic].subtopics && topics[currentTopic].subtopics[item]) {
+          delete topics[currentTopic].subtopics[item];
+        }
+      } else if (isSubtopic && parentMainTopic) {
+        if (topics[currentTopic].subtopics && topics[currentTopic].subtopics[parentMainTopic]) {
+          topics[currentTopic].subtopics[parentMainTopic] = topics[currentTopic].subtopics[parentMainTopic].filter(s => s !== item);
+        }
+      }
       console.log(`🔄 [DELETE] Lokális topics objektum frissítve`);
     }
 
@@ -864,6 +1434,22 @@ function addVoteToggleListener(el, item, currentlyVotedYes) {
     } else if (newVote === "no") {
       accepted = accepted.filter(i => i !== item);
       console.log(`❌ [VOTE] "${item}" eltávolítva az elfogadottakból`);
+      
+      // ÚJ: Ha egy főtémát "nem"-re váltunk, az összes subtopicját is "nem"-re állítjuk
+      const subtopics = getSubtopicsForItem(item);
+      if (subtopics.length > 0) {
+        console.log(`❌ [SUBTOPIC] "${item}" elutasítva - ${subtopics.length} subtopic automatikus elutasítása`);
+        
+        subtopics.forEach(subtopic => {
+          votes[subtopic] = "no";
+          // Subtopic votes objektumból is töröljük/frissítjük
+          if (subtopicVotes[item]) {
+            subtopicVotes[item][subtopic] = "no";
+          }
+        });
+        
+        console.log(`📋 [SUBTOPIC] Subtopicok elutasítva: [${subtopics.join(', ')}]`);
+      }
     }
     
     // Küldés a szervernek
@@ -886,6 +1472,7 @@ async function loadUserVotes() {
     if (swipeDoc.exists) {
       const data = swipeDoc.data();
       votes = data.swipes || {};
+      subtopicVotes = data.subtopicSwipes || {}; // Subtopic szavazatok betöltése
       
       // Accepted lista újraépítése a votes alapján
       accepted = [];
@@ -896,84 +1483,59 @@ async function loadUserVotes() {
       });
       
       console.log(`✅ [VOTES] Szavazatok betöltve - ${Object.keys(votes).length} elem, elfogadva: [${accepted.join(', ')}]`);
+      console.log(`✅ [SUBTOPIC-VOTES] Subtopic szavazatok betöltve:`, subtopicVotes);
     } else {
       console.log(`📭 [VOTES] Nincsenek korábbi szavazatok`);
       votes = {};
+      subtopicVotes = {};
       accepted = [];
     }
   } catch (error) {
     console.error(`❌ [VOTES] Hiba a szavazatok betöltésekor`, error);
     votes = {};
+    subtopicVotes = {};
     accepted = [];
   }
 }
 
 // --- Ellenőrzi, hogy a user befejezte-e a szavazást ---
 function hasUserFinishedVoting() {
-  const allItems = topics[currentTopic] || [];
+  // FRISSÍTVE: csak a főtémákra ellenőrzünk - a subtopicok dinamikusan kerülnek be
+  const allItems = topics[currentTopic]?.items || [];
   const votedItems = Object.keys(votes);
   
-  console.log(`🔍 [CHECK] Szavazás állapot - összes elem: ${allItems.length}, megszavazott: ${votedItems.length}`);
+  console.log(`🔍 [CHECK] Szavazás állapot - főtémák: ${allItems.length}, megszavazott: ${votedItems.length}`);
   
-  // Ha minden elemre szavaztunk, akkor kész vagyunk
-  const isFinished = allItems.length > 0 && allItems.every(item => votes.hasOwnProperty(item));
+  // Minden főtémára szavaztunk-e? (subtopicok automatikusan kerülnek be)
+  const mainTopicsFinished = allItems.length > 0 && allItems.every(item => votes.hasOwnProperty(item));
+  
+  // Továbbá: minden elfogadott főtéma subtopicjaira is szavaztunk-e?
+  let subtopicsFinished = true;
+  for (const mainTopic of allItems) {
+    if (votes[mainTopic] === "yes") {
+      const subtopics = getSubtopicsForItem(mainTopic);
+      const allSubtopicsVoted = subtopics.every(subtopic => votes.hasOwnProperty(subtopic));
+      if (!allSubtopicsVoted) {
+        subtopicsFinished = false;
+        console.log(`🎯 [CHECK] "${mainTopic}" subtopicjai még nem szavazva: [${subtopics.filter(sub => !votes.hasOwnProperty(sub)).join(', ')}]`);
+        break;
+      }
+    }
+  }
+  
+  const isFinished = mainTopicsFinished && subtopicsFinished;
   
   if (isFinished) {
-    console.log(`✅ [CHECK] User befejezte a szavazást`);
+    console.log(`✅ [CHECK] User befejezte a szavazást (főtémák + subtopicok)`);
   } else {
-    console.log(`🎯 [CHECK] User még nem fejezte be - hiányzó elemek: [${allItems.filter(item => !votes.hasOwnProperty(item)).join(', ')}]`);
+    const missingMainTopics = allItems.filter(item => !votes.hasOwnProperty(item));
+    console.log(`🎯 [CHECK] User még nem fejezte be`);
+    if (missingMainTopics.length > 0) {
+      console.log(`   📋 Hiányzó főtémák: [${missingMainTopics.join(', ')}]`);
+    }
   }
   
   return isFinished;
-}
-
-// --- Új elem hozzáadása ---
-async function handleAddItem() {
-  try {
-    const input = document.getElementById('newItemInput');
-    const item = input.value.trim();
-    if (!item) {
-      console.log(`⚠️ [ADD] Üres elem, hozzáadás megszakítva`);
-      return;
-    }
-    
-    console.log(`➕ [ADD] Új elem hozzáadása: "${item}" a "${currentTopic}" témához`);
-    
-    // Rögzítjük, hogy ez a user adta hozzá - ne kapjon róla modal-t
-    userAddedItems.add(item);
-    console.log(`📝 [ADD] Elem rögzítve saját hozzáadásként: "${item}"`);
-    
-    if (!topics[currentTopic]) topics[currentTopic] = [];
-    topics[currentTopic].push(item);
-    
-    await db.collection("topics").doc(currentTopic).update({ 
-      items: topics[currentTopic] 
-    });
-    
-    console.log(`📝 [ADD] "${item}" hozzáadva a Firestore topics-hoz`);
-    
-    // AUTOMATIKUS IGEN szavazat a hozzáadónak (aki hozzáadta, annak tetszik)
-    votes[item] = "yes";
-    if (!accepted.includes(item)) {
-      accepted.push(item);
-      console.log(`✅ [ADD] "${item}" automatikusan elfogadva a hozzáadó által`);
-    }
-    
-    // Hozzáadó ne kapjon modal-t - már döntött
-    decidedItems.add(item);
-    console.log(`🚫 [ADD] "${item}" hozzáadva a decided items-hez - nincs modal a hozzáadónak`);
-    
-    await sendSwipes();
-    input.value = '';
-    input.dispatchEvent(new Event('input'));
-    
-    console.log(`✅ [ADD] Új elem sikeresen hozzáadva és szavazat elküldve`);
-    
-    // Adatbázis dump hozzáadás után
-    setTimeout(() => logDatabaseContents(), 500);
-  } catch (error) {
-    console.error(`❌ [ADD] Hiba az új elem hozzáadásakor`, error);
-  }
 }
 
 // --- QR ---
@@ -1019,33 +1581,6 @@ window.onload = () => {
   addInstantClick(document.getElementById("topicNextBtn"), onTopicNext);
   addInstantClick(document.getElementById("yesBtn"), () => handleSwipe(true));
   addInstantClick(document.getElementById("noBtn"), () => handleSwipe(false));
-  addInstantClick(document.getElementById("addItemBtn"), handleAddItem);
-  
-  // Új elem input mező figyelése - gomb engedélyezés/tiltás
-  const newItemInput = document.getElementById('newItemInput');
-  const addItemBtn = document.getElementById('addItemBtn');
-  
-  function updateAddButtonState() {
-    const hasText = newItemInput.value.trim().length > 0;
-    addItemBtn.disabled = !hasText;
-    
-    // Vizuális állapot frissítése
-    if (hasText) {
-      addItemBtn.className = 'btn btn-primary';
-      addItemBtn.innerHTML = '<i class="fas fa-plus me-1"></i>Hozzáadás';
-    } else {
-      addItemBtn.className = 'btn btn-secondary';
-      addItemBtn.innerHTML = '<i class="fas fa-plus me-1"></i>Hozzáadás';
-    }
-    
-    console.log(`🎛️ [INPUT] Hozzáadás gomb állapot: ${hasText ? 'engedélyezve (kék)' : 'tiltva (szürke)'} - szöveg: "${newItemInput.value.trim()}"`);
-  }
-  
-  // Kezdeti állapot beállítása
-  updateAddButtonState();
-  
-  // Input esemény figyelése
-  newItemInput.addEventListener('input', updateAddButtonState);
   
   // Pending vote modal gombok
   addInstantClick(document.getElementById("pendingVoteYes"), () => {
