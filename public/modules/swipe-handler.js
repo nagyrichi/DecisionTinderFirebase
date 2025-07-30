@@ -34,6 +34,13 @@ function handleSwipe(yes) {
         // Beszúrjuk a subtopicokat a currentIndex+1 pozíciótól
         window.currentItems.splice(window.currentIndex + 1, 0, ...shuffledSubtopics);
         
+        // FONTOS: Eltávolítjuk a főtémát a listából, hogy ne jelenjen meg újra
+        const remainingItems = window.currentItems.filter((currentItem, index) => 
+          index <= window.currentIndex || currentItem !== item
+        );
+        window.currentItems = remainingItems;
+        
+        console.log(`🗑️ [SUBTOPIC] Főtéma "${item}" eltávolítva a listából (subtopicok beszúrva)`);
         console.log(`📋 [SUBTOPIC] Subtopicok beszúrva: [${shuffledSubtopics.join(', ')}]`);
         console.log(`📊 [SUBTOPIC] Új lista hossz: ${window.currentItems.length}`);
         console.log(`📄 [SUBTOPIC] Teljes currentItems lista:`, window.currentItems);
