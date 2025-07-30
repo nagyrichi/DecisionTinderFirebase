@@ -5,12 +5,6 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "!**/{*.js,*.css,*.json,*.png,*.jpg,*.gif,*.ico,*.svg}",
-        "destination": "/index.html"
-      }
     ]
   }
 }
