@@ -80,10 +80,15 @@ function showNextItem() {
   console.log(`👀 [SWIPE] Következő elem megjelenítése - ${window.currentIndex + 1}/${window.currentItems.length}: "${item}"`);
   
   document.getElementById("itemText").innerText = item;
-  card.style.backgroundColor = window.utils.getRandomPastelColor();
-  card.className = 'card text-center shadow-lg';
+  
+  // Véletlenszerű gradient osztály hozzáadása
+  const gradientNumber = Math.floor(Math.random() * 8) + 1; // 1-8 között
+  card.className = `card text-center shadow-lg gradient-${gradientNumber}`;
+  console.log(`🎨 [SWIPE] Kártya gradient: gradient-${gradientNumber}`);
+  
   card.style.transform = 'translateX(0) rotate(0deg)';
   card.style.opacity = 1;
+  card.style.backgroundColor = ''; // Töröljük a korábbi inline stílust
   setupSwipeGesture(card);
 }
 
