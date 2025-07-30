@@ -1,7 +1,7 @@
 // Swipe kezelés modul
 
 // Swipe kezelése
-function handleSwipe(yes) {
+function handleSwipe(yes, fromGesture = false) {
   const item = window.currentItems[window.currentIndex];
   window.decidedItems.add(item);
 
@@ -11,7 +11,22 @@ function handleSwipe(yes) {
   window.votes[item] = yes ? "yes" : "no";
 
   const card = document.getElementById("card");
-  card.classList.add(yes ? "swipe-right" : "swipe-left");
+  
+  if (fromGesture) {
+    // Gesture-ből jön: törljük a gesture event listener-eket hogy ne interferáljanak
+    card.onmousedown = null;
+    card.onmousemove = null;
+    card.onmouseup = null;
+    card.ontouchstart = null;
+    card.ontouchmove = null;
+    card.ontouchend = null;
+    
+    // Gesture animáció - folytatja a jelenlegi pozícióból
+    card.classList.add(yes ? "swipe-right" : "swipe-left");
+  } else {
+    // Button-ből jön: különböző animáció osztály
+    card.classList.add(yes ? "button-swipe-right" : "button-swipe-left");
+  }
 
   setTimeout(() => {
     if (yes && !window.accepted.includes(item)) {
@@ -71,7 +86,7 @@ function handleSwipe(yes) {
     } else {
       showNextItem();
     }
-  }, 400);
+  }, fromGesture ? 400 : 350); // Button esetén rövidebb várakozás
 }
 
 // Következő elem megjelenítése
@@ -88,36 +103,118 @@ function showNextItem() {
   
   document.getElementById("itemText").innerText = item;
   
-  // Véletlenszerű gradient osztály hozzáadása
-  const gradientNumber = Math.floor(Math.random() * 8) + 1; // 1-8 között
-  card.className = `card text-center shadow-lg gradient-${gradientNumber}`;
+  // TELJES RESET - eltávolítjuk MINDEN osztályt és stílust
+  card.className = 'card text-center shadow-lg';
+  
+  // Speciálisan eltávolítjuk az összes animáció osztályt
+  card.classList.remove('swipe-left', 'swipe-right', 'button-swipe-left', 'button-swipe-right');
+  
+  // Összes animáció és inline stílus törlése
+  card.style.cssText = '';
+  
+  // Alapértelmezett stílusok beállítása
+  card.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
+  card.style.opacity = '1';
+  card.style.transition = '';
+  card.style.animation = '';
+  
+  // Force reflow több lépésben
+  card.offsetHeight;
+  
+  // Random gradient osztály hozzáadása
+  const gradientNumber = Math.floor(Math.random() * 8) + 1;
+  card.classList.add(`gradient-${gradientNumber}`);
   console.log(`🎨 [SWIPE] Kártya gradient: gradient-${gradientNumber}`);
   
-  card.style.transform = 'translateX(0) rotate(0deg)';
-  card.style.opacity = 1;
-  card.style.backgroundColor = ''; // Töröljük a korábbi inline stílust
-  setupSwipeGesture(card);
+  // Még egy reflow a gradient után
+  card.offsetHeight;
+  
+  // Setup gesture a teljes reset után
+  setTimeout(() => {
+    setupSwipeGesture(card);
+  }, 100); // Nagyobb delay a biztonság kedvéért
 }
 
 // Swipe gesztus beállítása
 function setupSwipeGesture(card) {
   let startX = 0, currentX = 0, isDragging = false;
-  const onDragStart = (clientX) => { isDragging = true; startX = clientX; card.style.transition = 'none'; };
-  const onDragMove = (clientX) => { if (!isDragging) return; currentX = clientX - startX; card.style.transform = `translateX(${currentX}px) rotate(${currentX / 20}deg)`; };
+  
+  // Clean up any existing event listeners
+  card.onmousedown = null;
+  card.onmousemove = null;
+  card.onmouseup = null;
+  card.ontouchstart = null;
+  card.ontouchmove = null;
+  card.ontouchend = null;
+  
+  const onDragStart = (clientX) => { 
+    isDragging = true; 
+    startX = clientX; 
+    // iOS fix: Force stop any running animations
+    card.style.animation = 'none';
+    card.style.transition = 'none'; 
+    // Force reflow to ensure changes are applied
+    card.offsetHeight;
+  };
+  
+  const onDragMove = (clientX) => { 
+    if (!isDragging) return; 
+    currentX = clientX - startX; 
+    // iOS optimized transform
+    card.style.transform = `translate3d(${currentX}px, 0, 0) rotate(${currentX / 20}deg)`;
+  };
+  
   const onDragEnd = () => {
-    if (!isDragging) return; isDragging = false;
+    if (!isDragging) return; 
+    isDragging = false;
     const threshold = card.offsetWidth * 0.4;
-    if (currentX > threshold) handleSwipe(true);
-    else if (currentX < -threshold) handleSwipe(false);
-    else { card.style.transition = 'transform 0.3s ease'; card.style.transform = 'translateX(0) rotate(0deg)'; }
+    
+    if (currentX > threshold) {
+      // IGEN swipe - azonnal átadjuk a CSS animációnak
+      card.style.transition = 'none';
+      card.style.transform = `translate3d(${currentX}px, 0, 0) rotate(${currentX / 20}deg)`;
+      handleSwipe(true, true); // fromGesture = true
+    } else if (currentX < -threshold) {
+      // NEM swipe - azonnal átadjuk a CSS animációnak  
+      card.style.transition = 'none';
+      card.style.transform = `translate3d(${currentX}px, 0, 0) rotate(${currentX / 20}deg)`;
+      handleSwipe(false, true); // fromGesture = true
+    } else { 
+      // Return to center with smooth animation
+      card.style.transition = 'transform 0.3s ease'; 
+      card.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
+    }
     currentX = 0;
   };
-  card.onmousedown = (e) => onDragStart(e.clientX);
+  
+  // Mouse events
+  card.onmousedown = (e) => {
+    e.preventDefault();
+    onDragStart(e.clientX);
+  };
   card.onmousemove = (e) => isDragging && onDragMove(e.clientX);
   card.onmouseup = () => isDragging && onDragEnd();
-  card.ontouchstart = (e) => onDragStart(e.touches[0].clientX);
-  card.ontouchmove = (e) => onDragMove(e.touches[0].clientX);
-  card.ontouchend = () => onDragEnd();
+  
+  // Touch events with iOS optimizations
+  card.ontouchstart = (e) => {
+    e.preventDefault(); // Prevent iOS bounce/scroll
+    onDragStart(e.touches[0].clientX);
+  };
+  card.ontouchmove = (e) => {
+    e.preventDefault(); // Prevent iOS bounce/scroll
+    if (e.touches.length === 1) { // Only single touch
+      onDragMove(e.touches[0].clientX);
+    }
+  };
+  card.ontouchend = (e) => {
+    e.preventDefault(); // Prevent iOS bounce/scroll
+    onDragEnd();
+  };
+  
+  // iOS specific: prevent touch callout and selection
+  card.style.webkitTouchCallout = 'none';
+  card.style.webkitUserSelect = 'none';
+  card.style.userSelect = 'none';
 }
 
 // Match ellenőrzés (üres függvény, a listener automatikusan frissít)
