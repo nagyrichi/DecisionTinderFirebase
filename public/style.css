@@ -57,12 +57,181 @@ body {
 #screen-topic {
   justify-content: center;
   padding: 1rem;
+  overflow: hidden; /* Görgetés kikapcsolása */
+  height: 100%; /* Fix magasság */
+  /* iOS specifikus görgetés letiltás */
+  -webkit-overflow-scrolling: none;
+  touch-action: none;
+  overscroll-behavior: none;
+  position: relative;
+}
+
+/* iOS specifikus body fix a topic és swipe képernyőkhöz */
+body.topic-screen-active,
+body.swipe-screen-active {
+  overflow: hidden !important;
+  position: fixed !important;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: none !important;
+  -webkit-overflow-scrolling: none !important;
+}
+
+/* ===== BRANDING STÍLUSOK ===== */
+.branding-title {
+  background: linear-gradient(135deg, #ff6b35, #f7931e, #ffd700, #32cd32, #00bfff, #8a2be2);
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 8s ease-in-out infinite;
+  text-shadow: 0 0 30px rgba(255, 107, 53, 0.3);
+  font-weight: 800 !important;
+  letter-spacing: -0.02em;
+}
+
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* ===== QR MODAL STÍLUSOK ===== */
+.qr-modal-content {
+  background: linear-gradient(135deg, #1a1a1a, #2d2d2d, #1a1a1a);
+  border: none; /* Keret eltávolítva */
+  border-radius: 1rem !important;
+  box-shadow: 0 20px 60px rgba(255, 107, 53, 0.2), 
+              0 0 40px rgba(255, 215, 0, 0.1);
+  overflow: hidden;
+  animation: modalSlideIn 0.4s ease-out;
+}
+
+.qr-modal-header {
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.1), rgba(255, 215, 0, 0.1));
+  padding: 1.5rem !important;
+}
+
+.qr-modal-title {
+  background: linear-gradient(135deg, #ff6b35, #f7931e, #ffd700);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.qr-modal-close {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-radius: 50% !important;
+  padding: 0.5rem !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.3s ease !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  position: relative !important;
+}
+
+.qr-modal-close::before {
+  content: "✕" !important;
+  color: #dc3545 !important;
+  font-size: 14px !important;
+  font-weight: bold !important;
+  line-height: 1 !important;
+}
+
+.qr-modal-close:hover {
+  background: rgba(220, 53, 69, 0.2) !important;
+  border-color: rgba(220, 53, 69, 0.4) !important;
+  transform: rotate(90deg) scale(1.1) !important;
+}
+
+.qr-modal-close:hover::before {
+  color: #ff6b6b !important;
+}
+
+.qr-modal-body {
+  padding: 2rem 1.5rem !important;
+}
+
+.qr-container {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(240, 240, 240, 0.95));
+  border-radius: 1rem;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.1);
+  animation: qrGlow 2s ease-in-out infinite alternate;
+}
+
+.qr-code-wrapper canvas,
+.qr-code-wrapper img {
+  border-radius: 0.5rem;
+  transition: transform 0.3s ease;
+}
+
+.qr-code-wrapper:hover canvas,
+.qr-code-wrapper:hover img {
+  transform: scale(1.05);
+}
+
+.qr-link-text {
+  color: #ffd700 !important;
+  font-weight: 600;
+  word-break: break-all;
+  background: rgba(255, 215, 0, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.qr-instructions {
+  margin-top: 1rem;
+}
+
+.qr-instructions p {
+  color: #aaa !important;
+  font-size: 0.875rem;
+}
+
+@keyframes modalSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes qrGlow {
+  0% {
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.1),
+                0 0 20px rgba(255, 215, 0, 0.1);
+  }
+  100% {
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.1),
+                0 0 30px rgba(255, 215, 0, 0.2);
+  }
 }
 
 /* ===== SWIPE KÉPERNYŐ ===== */
 #screen-swipe {
   justify-content: space-between;
   padding: 0;
+  overflow: hidden; /* Görgetés kikapcsolása */
+  height: 100%; /* Fix magasság */
+  /* iOS specifikus görgetés letiltás */
+  -webkit-overflow-scrolling: none;
+  touch-action: none;
+  overscroll-behavior: none;
+  position: relative;
 }
 #screen-swipe h2 {
   padding: 1rem 1rem 0 1rem;
@@ -79,24 +248,76 @@ body {
 #card {
   width: 100%;
   height: 100%;
-  background-color: #1e1e1e;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #f5576c 75%, #4facfe 100%);
+  background-size: 400% 400%;
   border-radius: 1rem;
-  transition: background-color 0.3s ease;
+  transition: all 0.3s ease;
+  animation: cardGradientShift 12s ease-in-out infinite;
+  border: none;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 
+              0 0 30px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
 }
+
+#card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  border-radius: 1rem;
+  z-index: 1;
+}
+
 #itemText {
   font-size: 2rem;
   padding: 1.5rem;
+  color: white;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  font-weight: 600;
+  z-index: 2;
+  position: relative;
+  text-align: center;
+  line-height: 1.2;
+}
+
+@keyframes cardGradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  25% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 50% 100%;
+  }
+  75% {
+    background-position: 100% 0%;
+  }
 }
 
 /* Swipe animációk */
 .swipe-left {
   animation: swipeLeft 0.4s forwards;
-  background-color: #5c1a1a !important;
 }
+
+.swipe-left {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a52, #ff4757) !important;
+  animation: swipeLeft 0.4s forwards, none !important;
+}
+
 .swipe-right {
   animation: swipeRight 0.4s forwards;
-  background-color: #1c4024 !important;
 }
+
+.swipe-right {
+  background: linear-gradient(135deg, #2ed573, #1dd1a1, #00d2d3) !important;
+  animation: swipeRight 0.4s forwards, none !important;
+}
+
 @keyframes swipeLeft {
   100% {
     transform: translateX(-150%) rotate(-20deg);
@@ -119,11 +340,14 @@ body {
 /* ===== MATCH KÉPERNYŐ ===== */
 #screen-match.active-screen {
   padding: 0;
-  /* KRITIKUS: Dinamikus magasság engedélyezése */
-  height: auto !important;
-  min-height: 100% !important;
+  /* iOS kompatibilis magasság beállítás */
+  height: 100vh !important;
+  min-height: 100vh !important;
+  max-height: 100vh !important;
   display: flex;
   flex-direction: column;
+  /* iOS specifikus flexbox javítás */
+  -webkit-flex-direction: column;
 }
 
 #screen-match .match-content-wrapper {
@@ -131,15 +355,14 @@ body {
   border-radius: var(--bs-card-border-radius);
   box-shadow: 0 .5rem 1rem rgba(0,0,0,.15);
   padding: 1rem;
-  /* KRITIKUS: Dinamikus magasság engedélyezése */
-  flex-grow: 0 !important;
-  flex-shrink: 0 !important;
+  /* iOS kompatibilis flex layout */
+  flex: 1;
+  -webkit-flex: 1;
   display: flex;
   flex-direction: column;
-  /* Eltávolítjuk a magasság korlátokat */
-  min-height: auto !important;
-  height: auto !important;
-  max-height: none !important;
+  -webkit-flex-direction: column;
+  min-height: 0; /* iOS flexbox fix */
+  overflow: hidden; /* iOS scroll context fix */
 }
 
 /* Fix fejlécek - csak match képernyőn */
@@ -162,18 +385,27 @@ body {
 
 /* Lista - csak ez görgethetö - csak match képernyőn */
 #screen-match #ownVotes {
-  /* KRITIKUS: Flex-shrink és dinamikus magasság */
-  flex-grow: 0 !important;
-  flex-shrink: 0 !important;
+  /* iOS kompatibilis flex beállítások */
+  flex: 1;
+  -webkit-flex: 1;
+  flex-grow: 1 !important;
+  flex-shrink: 1 !important;
+  -webkit-flex-grow: 1 !important;
+  -webkit-flex-shrink: 1 !important;
   overflow-y: auto;
   overflow-x: visible !important;
-  /* Eltávolítjuk a magasság kényszereket */
-  min-height: auto !important;
-  height: auto !important;
+  /* iOS specifikus scroll beállítások */
+  -webkit-overflow-scrolling: touch;
+  /* Minimum és maximum magasság beállítás */
+  min-height: 0 !important;
   max-height: none !important;
   /* Szép scrollbar */
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.3) transparent;
+  /* Padding alul a QR gombnak */
+  padding-bottom: 1rem;
+  /* iOS scroll területének biztosítása */
+  position: relative;
 }
 
 #screen-match #ownVotes::-webkit-scrollbar {
@@ -249,6 +481,49 @@ body {
   border-radius: 0.5rem;     /* kicsit lekerekítve */
   user-select: none;
   cursor: pointer;
+  transition: all 0.2s ease; /* Smooth átmenet */
+}
+
+/* Igen gomb - alapállapot: outline */
+#yesBtn {
+  background-color: transparent !important;
+  border: 2px solid #198754 !important;
+  color: #198754 !important;
+}
+
+/* Igen gomb - hover állapot */
+#yesBtn:hover {
+  background-color: rgba(25, 135, 84, 0.1) !important;
+  transform: scale(1.02);
+}
+
+/* Igen gomb - active/lenyomott állapot */
+#yesBtn:active {
+  background-color: #198754 !important;
+  color: white !important;
+  transform: scale(0.98);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* Nem gomb - alapállapot: outline */
+#noBtn {
+  background-color: transparent !important;
+  border: 2px solid #dc3545 !important;
+  color: #dc3545 !important;
+}
+
+/* Nem gomb - hover állapot */
+#noBtn:hover {
+  background-color: rgba(220, 53, 69, 0.1) !important;
+  transform: scale(1.02);
+}
+
+/* Nem gomb - active/lenyomott állapot */
+#noBtn:active {
+  background-color: #dc3545 !important;
+  color: white !important;
+  transform: scale(0.98);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
 }
 
 /* Szavazat számláló badge fix méret és padding */
@@ -431,4 +706,58 @@ input[type="text"] {
   word-wrap: break-word;
   hyphens: auto;
   color: #ffffff !important; /* Fehér szöveg */
+}
+
+/* ===== FIX ALSÓ SHARE GOMB ===== */
+.fixed-bottom-button {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 420px;
+  padding: 1rem 1rem 1rem 1rem; /* Egyforma padding mindenhol */
+  background: linear-gradient(transparent, rgba(18, 18, 18, 0.8) 20%, #121212 100%);
+  z-index: 1000;
+  pointer-events: none; /* Átlátszó területek ne blokkolják az interakciót */
+}
+
+.fixed-bottom-button .btn {
+  pointer-events: all; /* Csak a gomb legyen klikkelhetö */
+  margin: 0; /* Bootstrap row/col margin kompenzálása */
+}
+
+/* Padding-bottom hozzáadása a képernyőkhöz, hogy ne takarjon el a fix gomb */
+#screen-topic,
+#screen-match {
+  padding-bottom: 80px; /* Elég hely a fix gombnak */
+}
+
+#screen-swipe {
+  padding-bottom: 50px; /* Kevesebb hely swipe képernyőn, hogy a kártyák nagyobbak legyenek */
+}
+
+/* Match képernyő specifikus beállítás */
+#screen-match.active-screen {
+  padding-bottom: 80px !important;
+}
+
+/* iOS specifikus fix a match képernyőhöz */
+@supports (-webkit-touch-callout: none) {
+  #screen-match.active-screen {
+    height: calc(100vh - env(safe-area-inset-top)) !important;
+    min-height: calc(100vh - env(safe-area-inset-top)) !important;
+    max-height: calc(100vh - env(safe-area-inset-top)) !important;
+  }
+  
+  #screen-match .match-content-wrapper {
+    height: 100%;
+    max-height: 100%;
+  }
+  
+  #screen-match #ownVotes {
+    height: 0; /* iOS flexbox hack */
+    flex-basis: auto;
+    -webkit-flex-basis: auto;
+  }
 }
